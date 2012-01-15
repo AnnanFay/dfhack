@@ -7,3 +7,6 @@
 [submodule "library/xml"]
 	path = library/xml
 	url = git://github.com/peterix/df-structures.git
+[submodule "plugins/dgc/dfjson"]
+	path = plugins/dgc/dfjson
+	url = git@github.com:AnnanFay/dfjson.git
