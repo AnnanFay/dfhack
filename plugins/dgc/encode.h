@@ -1,121 +1,252 @@
-#include <Core.h>
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
-
-#include <DataDefs.h>
-#include <df/world.h>
-#include <df/unit.h>
-
-#include <boost/lexical_cast.hpp>
-
-#include "json_spirit_reader_template.h"
-#include "json_spirit_writer_template.h"
-
-#include <iostream>
-#include <fstream>
+#pragma once
 #include <vector>
 #include <string>
+#include <sstream>
+#include <typeinfo>
+#include <cxxabi.h> 
 
-using namespace DFHack;
-using namespace json_spirit;
+// REMOVE
+#include <iostream>
+#include <fstream>
+// ^THOSE
+
+#include <json_spirit/json_spirit_writer_template.h>
+
+#include <DataDefs.h>
+//#include <DFHack.h>
+
+#include "df-headers.h"
+#include "encode-df.h"
+
 using namespace std;
-using namespace boost;
+using namespace json_spirit;
+namespace js = json_spirit;
+//using namespace DFHack;
 
-// types in unit struct
-Value encode(df::unit::T_body);
-Value encode(df::unit::T_counters);
-Value encode(df::unit::T_job);
-Value encode(df::unit::T_last_hit);
-Value encode(df::unit::T_military);
-Value encode(df::unit::T_path);
-Value encode(df::unit::T_relations);
-Value encode(df::unit::T_status);
-Value encode(df::unit::T_status2);
-Value encode(df::unit::T_unknown1);
-Value encode(df::unit::T_unknown2);
-Value encode(df::unit::T_unknown3);
-Value encode(df::unit::T_unknown4);
-Value encode(df::unit::T_unknown6);
-Value encode(df::unit::T_unknown8);
-Value encode(df::language_name);
-Value encode(df::unit_flags1);
-Value encode(df::unit_flags2);
-Value encode(df::unit_flags3);
-//Value encode(enum_field<df::profession,int16_t>);
+typedef std::map<std::string, js::Object> jsmap;
+
+namespace dfjson
+{
+
+    // DECLARATIONS
+
+    template <class T>
+    void log(jsmap & json, T * rval);
+    template <class T>
+    void log(jsmap & json, T & rval);
+    template <class T, class M>
+    void log(jsmap & json, T & rval, M msg);
+    template <class T, class M>
+    void log(jsmap & json, T * rval, M msg);
+    template <class M>
+    void log(M msg);
+    // Templates
+    template <class T>                          js::Value encode_to_globals(T * rval);
+    template <class T>                          js::Value encode_to_globals(T & rval);
+
+    template <class T>                          js::Value encode(jsmap &, T & rval);
+    template <class T>                          js::Value encode(jsmap &, T * rval);
+    template <class T, std::size_t N>           js::Value encode(jsmap &, T (&rval)[N]);
+    template <class T>                          js::Value encode(jsmap &, std::vector<T> & rval);
+    template <class EnumType, class IntType>    js::Value encode(jsmap &, df::enum_field<EnumType,IntType> & rval);
+
+    template <class T>                          std::string get_p           (T * o);
+    template <class T>                          std::string global_exists   (jsmap &, T *);
+    template <class T>                          std::string global_add      (jsmap &, T *, js::Object&);
+
+    // Functions
+
+    // ints must be cast tobool, int, boost::int64_t, boost::uint64_t(long long) or double
+    js::Value encode(jsmap &, bool & rval);
+    js::Value encode(jsmap &, int rval);
+    js::Value encode(jsmap &, long & rval);
+    js::Value encode(jsmap &, long long & rval);
+    js::Value encode(jsmap &, short & rval);
+    js::Value encode(jsmap &, signed char & rval);
+    js::Value encode(jsmap &, unsigned char & rval);
+    js::Value encode(jsmap &, unsigned int & rval);
+    js::Value encode(jsmap &, unsigned long & rval);
+    js::Value encode(jsmap &, unsigned long long & rval);
+    js::Value encode(jsmap &, unsigned short & rval);
+    js::Value encode(jsmap &, std::string & rval);
+    js::Value encode(jsmap &, void* rval);
 
 
-Value encode(df::unit::T_inventory* rval);
-Value encode(df::building* rval);
-Value encode(df::general_ref* rval);
-Value encode(df::meeting_ref* rval);
+    js::Value encode(jsmap &, std::string & rval);
+    js::Value encode(jsmap &, void* rval);
+
+    // TEMPLATE DEFINITIONS
+    /*
+        Encoding functions
+    */
+
+    /*
+        General Case
+    */
+    
+    template <class T>
+    js::Value encode(jsmap &, T & rval) {
+        // we don't know how to render it so pass back it's type for debugging purposes
+        return js::Value(abi::__cxa_demangle(typeid(T).name(), 0, 0, 0));
+    }
+
+    /*
+        Pointers
+    */
+    template <class T>
+    js::Value encode(jsmap & json, T* rval) {
+        log(json, rval);
+
+        // There are serious problems with infinite recursive structures if we encode pointers
+        // There are three solutions
+        // 1. Limit recursion depth by using a global counter (bad) or passing an argument down the chain (better)
+        // 2. Encoding breadth first and detecting if the current object has already been rendered. (may have problems)
+        // 3. If something is a pointer don't render it, just render an artificial pointer/id to where it is (best solution?)
+        // 4. The clojure code could detect fields that are the same class as the one of the ancestors and not ask for them to be rendered
+
+        // NULL Pointer
+        if (!rval){
+            return js::Value();
+        }
+
+        // deref and encode
+        return encode(json, *rval);
+    }
+
+    /*
+        Primitives - Arrays
+    */
+
+    template <class T, std::size_t N>
+    js::Value encode(jsmap & json, T (&rval)[N]){
+        log(json, rval, N);
+        js::Array out;
+        for (int i=0; i < N; i++){
+            out.push_back( encode(json, rval[i]) );
+        }
+        return js::Value(out);
+    }
+
+    /*
+        STD Types
+    */
+
+    template<class T>
+    js::Value encode(jsmap & json, std::vector<T> &rval) {
+        log(json, rval);
+        js::Array out;
+        for (int i=0; i < rval.size(); i++){
+            out.push_back( encode(json, rval[i]) );
+        }
+        return js::Value(out);
+    }
 
 
-Value encode(std::string);
-Value encode(std::vector<df::unit::T_inventory*>);
-Value encode(std::vector<df::building*>);
-Value encode(std::vector<df::general_ref*>);
-Value encode(std::vector<df::meeting_ref*>);
-Value encode(std::vector<int32_t>);
-Value encode(std::vector<uint32_t>);
+    /*
+        DF Types
+    */
+    template <class EnumType, class IntType>
+    js::Value encode(jsmap & json, df::enum_field<EnumType,IntType> & rval) {
+        log(json, rval);
+        //EnumType e = rval();
+        //IntType v = rval.value;
+        return js::Value(get_key(rval));
+        //return js::Value(ENUM_KEY_STR(e, v));
+    }
 
-Value encode(int8_t);
-Value encode(int16_t);
-Value encode(int32_t);
-Value encode(uint8_t);
-Value encode(uint16_t);
-Value encode(uint32_t);
+    /*
+        Others
+    */
+    template<class T>
+    js::Value encode_to_globals(T & rval) {
+        return encode_to_globals(&rval);
+    }
+    template<class T>
+    js::Value encode_to_globals(T * rval) {
+        
+        jsmap json;
+        
+        // encode has side effects!
+        // it adds globals to json and returns a representation of rval!
+        // NOT AN JS:ARRAY
+        // BROKEN
+        //json["root"] = encode(json, rval);
+        js::Value root = encode(json, rval);
 
-// Others
-Value encode(df::unit* unit);
-Value encode(std::vector<df::unit*>);
-Value encode(df::world::T_units);
-Value encode(df::world*&);
+        // Convert our map to a value
+        js::Object obj;
+        obj.push_back(js::Pair( "root", root ) );
 
+        for (jsmap::reverse_iterator iter = json.rbegin(); iter != json.rend(); ++iter) {
+            obj.push_back(js::Pair( iter->first, iter->second ) );
+        }
+        
+        return js::Value(obj);
+    }
 
-//New 
-Value encode(df::unit::T_body);
-Value encode(df::unit::T_counters);
-Value encode(df::unit::T_job);
-Value encode(df::unit::T_last_hit);
-Value encode(df::unit::T_military);
-Value encode(df::unit::T_path);
-Value encode(df::unit::T_military::T_pickup_flags);
-Value encode(df::unit::T_relations);
-Value encode(df::unit::T_status);
-Value encode(df::unit::T_status2);
-Value encode(df::unit::T_status::T_unk_5b0*);
-Value encode(df::unit::T_unknown1);
-Value encode(df::unit::T_unknown2);
-Value encode(df::unit::T_unknown3);
-Value encode(df::unit::T_unknown4);
-Value encode(df::unit::T_unknown6);
-Value encode(df::unit::T_unknown8);
-Value encode(bool);
-Value encode(char);
-Value encode(df::building*);
-Value encode(df::item*);
-Value encode(df::job*);
-Value encode(df::language_name);
-Value encode(df::unit*);
-Value encode(df::unit_attribute);
-Value encode(df::unit_flags1);
-Value encode(df::unit_flags2);
-Value encode(df::unit_flags3);
-Value encode(df::enum_field<df::unit::T_counters::T_soldier_mood,int16_t>);
-Value encode(df::enum_field<df::item_type,int16_t>);
-Value encode(df::enum_field<df::profession,int16_t>);
-Value encode(std::vector<df::unit::T_status2::T_body_part_temperature*>);
-Value encode(std::vector<df::unit::T_inventory*>);
-Value encode(std::vector<df::body_part_raw*>*);
-Value encode(std::vector<df::building*>);
-Value encode(std::vector<df::general_ref*>);
-Value encode(std::vector<df::meeting_ref*>);
-Value encode(std::vector<df::unit_misc_trait*>);
-Value encode(std::vector<int16_t>);
-Value encode(std::vector<int32_t>);
-Value encode(std::vector<uint16_t>);
-Value encode(std::vector<uint32_t>);
-Value encode(std::vector<uint8_t>);
-Value encode(std::vector<void*>);
-Value encode(std::vector<df::unit_soul*>&);
+    template <class T>
+    std::string get_p(T * o){
+        const void * address = static_cast<const void*>(o);
+        std::stringstream ss;
+        ss << address;  
+        return "p" + ss.str(); 
+    }
+
+    template <class T>
+    std::string global_exists(jsmap & json, T * rval){
+        std::string p = get_p(rval);
+        if (json.find(p) == json.end()) {
+            json[p];
+            return "";
+        } else {
+            return p;
+        }
+    }
+
+    
+    template <class T>
+    std::string global_add(jsmap & json, T * rval, js::Object & val){
+        std::string p = get_p(rval);
+        json[p] = val;
+        return p;
+    }
+
+    template <class T>
+    void log(jsmap & json, T * rval){
+        log(json, rval, 0);
+    }
+
+    template <class T>
+    void log(jsmap & json, T & rval){
+        log(json, &rval, 0);
+    }
+
+    template <class T, class M>
+    void log(jsmap & json, T & rval, M msg){
+        log(json, &rval, msg);
+    }
+
+    template <class T, class M>
+    void log(jsmap & json, T * rval, M msg){
+        ofstream myfile;
+        myfile.open ("encode.log", ios::out | ios::app);
+
+        size_t len;
+        int s;
+        char* p = abi::__cxa_demangle(typeid(T).name(), 0, &len, &s);
+        myfile << typeid(T).name() << ": " << p << std::endl; 
+
+        myfile << "p: " << get_p(rval) << endl;
+        myfile << msg << endl;
+        myfile.close();
+    }
+
+    template <class M>
+    void log(M msg){
+        ofstream myfile;
+        myfile.open ("encode.log", ios::out | ios::app);
+        myfile << msg << endl;
+        myfile.close();
+    }
+
+}
