@@ -1,5 +1,7 @@
 PROJECT (dgc)
 
+add_subdirectory (dfjson)
+
 # WTF
 include_directories (
     .

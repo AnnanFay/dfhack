@@ -14,7 +14,7 @@
 #include <PluginManager.h>
 #include <DataDefs.h>
 
-#include "encode.h"
+#include "dfjson/encode.h"
 
 using namespace std;
 using namespace json_spirit;
