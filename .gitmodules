@@ -10,3 +10,6 @@
 [submodule "plugins/dgc/dfjson"]
 	path = plugins/dgc/dfjson
 	url = git@github.com:AnnanFay/dfjson.git
+[submodule "plugins/dfjson"]
+	path = plugins/dfjson
+	url = git@github.com:AnnanFay/dfjson.git
