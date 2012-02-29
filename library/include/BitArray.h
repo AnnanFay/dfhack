@@ -27,6 +27,7 @@ distribution.
 #include "Export.h"
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 #include <sstream>
 //#include <ostream>
 namespace DFHack
@@ -35,20 +36,48 @@ namespace DFHack
     class BitArray
     {
     public:
-        BitArray()
+        BitArray() : bits(NULL), size(0) {}
+        BitArray(const BitArray<T> &other) : bits(NULL), size(0)
         {
-            bits = NULL;
-            size = 0;
+            *this = other;
         }
         ~BitArray()
         {
-            if(bits)
-                delete [] bits;
+            free(bits);
         }
+
+        explicit BitArray(T last) : bits(NULL), size(0) {
+            extend(last);
+        }
+        explicit BitArray(unsigned bytes) : bits(NULL), size(0) {
+            resize(bytes);
+        }
+
         void clear_all ( void )
         {
             if(bits)
                 memset(bits, 0, size);
+        }
+        void resize (unsigned newsize)
+        {
+            if (newsize == size)
+                return;
+            bits = (uint8_t*)realloc(bits, newsize);
+            if (newsize > size)
+                memset(bits+size, 0, newsize-size);
+            size = newsize;
+        }
+        BitArray<T> &operator= (const BitArray<T> &other)
+        {
+            resize(other.size);
+            memcpy(bits, other.bits, size);
+            return *this;
+        }
+        void extend (T index)
+        {
+            unsigned newsize = (index / 8) + 1;
+            if (newsize > size)
+                resize(newsize);
         }
         void set (T index, bool value = true)
         {
@@ -58,7 +87,8 @@ namespace DFHack
                 return;
             }
             uint32_t byte = index / 8;
-            if(byte < size)
+            extend(index);
+            //if(byte < size)
             {
                 uint8_t bit = 1 << (index % 8);
                 bits[byte] |= bit;
@@ -76,7 +106,8 @@ namespace DFHack
         void toggle (T index)
         {
             uint32_t byte = index / 8;
-            if(byte < size)
+            extend(index);
+            //if(byte < size)
             {
                 uint8_t bit = 1 << (index % 8);
                 bits[byte] ^= bit;
@@ -93,7 +124,7 @@ namespace DFHack
             else return false;
         }
         /// WARNING: this can truncate long bit arrays
-        operator uint32_t ()
+        uint32_t as_int ()
         {
             if(!bits)
                 return 0;
@@ -132,5 +163,52 @@ namespace DFHack
     //private:
         uint8_t * bits;
         uint32_t size;
+    };
+
+    template <typename T = int>
+    class DfArray
+    {
+        T *m_data;
+        unsigned short m_size;
+    public:
+        DfArray() : m_data(NULL), m_size(0) {}
+        ~DfArray() { free(m_data); }
+
+        DfArray(const DfArray<T> &other) : m_data(NULL), m_size(0)
+        {
+            resize(other.m_size);
+            memcpy(m_data, other.m_data,m_size*sizeof(T));
+        }
+
+        T *data() { return m_data; }
+        const T *data() const { return m_data; }
+        unsigned size() const { return m_size; }
+
+        T& operator[] (unsigned i) { return m_data[i]; }
+        const T& operator[] (unsigned i) const { return m_data[i]; }
+
+        void resize(unsigned new_size)
+        {
+            if (new_size == m_size)
+                return;
+            if(!m_data)
+            {
+                m_data = (T*) malloc(sizeof(T)*new_size);
+            }
+            else
+            {
+                m_data = (T*)realloc(m_data, sizeof(T)*new_size);
+            }
+            if (new_size > m_size)
+                memset(m_data+sizeof(T)*m_size, 0, sizeof(T)*(new_size - m_size));
+            m_size = new_size;
+        }
+
+        DfArray &operator= (const DfArray<T> &other)
+        {
+            resize(other.size());
+            memcpy(data(), other.data(), sizeof(T)*size());
+            return *this;
+        }
     };
 }

@@ -8,14 +8,14 @@
 #include <string.h>
 using namespace std;
 #include "Core.h"
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
-#include <modules/Graphic.h>
-#include <modules/Gui.h>
+#include "Console.h"
+#include "Export.h"
+#include "PluginManager.h"
+#include "modules/Graphic.h"
+#include "modules/Gui.h"
 using namespace DFHack;
 
-DFhackCExport command_result df_versionosd (Core * c, vector <string> & parameters);
+command_result df_versionosd (Core * c, vector <string> & parameters);
 static DFSDL_Surface* (*_IMG_LoadPNG_RW)(void* src) = 0;
 static vPtr (*_SDL_RWFromFile)(const char* file, const char *mode) = 0;
 static int (*_SDL_SetAlpha)(vPtr surface, uint32_t flag, uint8_t alpha) = 0;
@@ -29,10 +29,7 @@ DFTileSurface* tiles[10];
 char* file = "Cooz_curses_square_16x16.png";
 Gui* gui;
 
-DFhackCExport const char * plugin_name ( void )
-{
-    return "versionosd";
-}
+DFHACK_PLUGIN("versionosd");
 
 DFTileSurface* createTile(int x, int y)
 {
@@ -117,7 +114,7 @@ DFhackCExport command_result plugin_shutdown ( Core * c )
     return CR_OK;
 }
 
-DFhackCExport command_result df_versionosd (Core * c, vector <string> & parameters)
+command_result df_versionosd (Core * c, vector <string> & parameters)
 {
     On = !On;
     c->Suspend();

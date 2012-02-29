@@ -28,16 +28,12 @@ enum HEXVIEW_STATES
 {
 	STATE_OFF,STATE_ON
 };
-DFhackCExport command_result memview (Core * c, vector <string> & parameters);
+command_result memview (Core * c, vector <string> & parameters);
 
-DFhackCExport const char * plugin_name ( void )
-{
-    return "memview";
-}
+DFHACK_PLUGIN("memview");
 
 DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
 {
-    commands.clear();
 	commands.push_back(PluginCommand("memview","Shows memory in real time. Params: adrr length refresh_rate. If addr==0 then stop viewing",memview));
 	memdata.state=STATE_OFF;
 	mymutex=new tthread::mutex;
@@ -139,7 +135,7 @@ DFhackCExport command_result plugin_onupdate ( Core * c )
 	return CR_OK;
 
 }
-DFhackCExport command_result memview (Core * c, vector <string> & parameters)
+command_result memview (Core * c, vector <string> & parameters)
 {
 	mymutex->lock();
 	c->p->getMemRanges(memdata.ranges);

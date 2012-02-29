@@ -32,6 +32,17 @@ distribution.
 #include "BitArray.h"
 #include <string>
 
+#include "DataDefs.h"
+#include "df/init.h"
+#include "df/ui.h"
+
+namespace df {
+    struct viewscreen;
+    struct job;
+    struct unit;
+    struct item;
+};
+
 /**
  * \defgroup grp_gui query DF's GUI state
  * @ingroup grp_modules
@@ -39,89 +50,46 @@ distribution.
 
 namespace DFHack
 {
+    class Core;
+
+    // Full-screen item details view
+    DFHACK_EXPORT bool item_details_hotkey(Core *, df::viewscreen *top);
+    // 'u'nits or 'j'obs full-screen view
+    DFHACK_EXPORT bool unitjobs_hotkey(Core *, df::viewscreen *top);
+
+    // A job is selected in a workshop
+    DFHACK_EXPORT bool workshop_job_hotkey(Core *c, df::viewscreen *top);
+    // Building material selection mode
+    DFHACK_EXPORT bool build_selector_hotkey(Core *c, df::viewscreen *top);
+    // A unit is selected in the 'v' mode
+    DFHACK_EXPORT bool view_unit_hotkey(Core *c, df::viewscreen *top);
+    // Above + the inventory page is selected.
+    DFHACK_EXPORT bool unit_inventory_hotkey(Core *c, df::viewscreen *top);
+
+    // In workshop_job_hotkey, returns the job
+    DFHACK_EXPORT df::job *getSelectedWorkshopJob(Core *c, bool quiet = false);
+
+    // A job is selected in a workshop, or unitjobs
+    DFHACK_EXPORT bool any_job_hotkey(Core *c, df::viewscreen *top);
+    DFHACK_EXPORT df::job *getSelectedJob(Core *c, bool quiet = false);
+
+    // A unit is selected via 'v', 'k', unitjobs, or
+    // a full-screen item view of a cage or suchlike
+    DFHACK_EXPORT bool any_unit_hotkey(Core *c, df::viewscreen *top);
+    DFHACK_EXPORT df::unit *getSelectedUnit(Core *c, bool quiet = false);
+
+    // An item is selected via 'v'->inventory, 'k', 't', or
+    // a full-screen item view of a container. Note that in the
+    // last case, the highlighted contained item is returned, not
+    // the container itself.
+    DFHACK_EXPORT bool any_item_hotkey(Core *c, df::viewscreen *top);
+    DFHACK_EXPORT df::item *getSelectedItem(Core *c, bool quiet = false);
+
+    // Show a plain announcement, or a titan-style popup message
+    DFHACK_EXPORT void showAnnouncement(std::string message, int color = 7, bool bright = true);
+    DFHACK_EXPORT void showPopupAnnouncement(std::string message, int color = 7, bool bright = true);
+
     class DFContextShared;
-    /**
-     * A GUI screen
-     * \ingroup grp_gui
-     */
-    struct t_viewscreen : public t_virtual
-    {
-        t_viewscreen * child;
-        t_viewscreen * parent;
-        char unk1; // varies
-        char unk2; // state?
-    };
-    /**
-     * Interface - wrapper for the GUI
-     * \ingroup grp_gui
-     */
-    struct t_interface
-    {
-        int fps;
-        t_viewscreen view;
-        unsigned int flags; // ?
-        // more crud this way ...
-    };
-    enum graphics_flag
-    {
-        GRAPHICS_ENABLED = 0,
-        GRAPHICS_BLACKSPACE = 1,
-        GRAPHICS_PARTIAL_PRINT = 2,
-        GRAPHICS_TEXT = 11,
-        GRAPHICS_FIXED_SIZE = 13
-    };
-    enum media_flag
-    {
-        MEDIA_NO_SOUND,
-        MEDIA_NO_INTRO,
-        MEDIA_COMPRESS_WORLDS,
-    };
-    /**
-     * The init structure - basically DF settings
-     * \ingroup grp_gui
-     */
-    struct t_init
-    {
-        struct
-        {
-            BitArray <graphics_flag> flags;
-            enum
-            {
-                WINDOWED_YES,
-                WINDOWED_NO,
-                WINDOWED_PROMPT
-            } windowed;
-            // screen size in tiles
-            int grid_x;
-            int grid_y;
-            // in pixels ?
-            int fullscreen_x;
-            int fullscreen_y;
-            int window_x;
-            int window_y;
-            char partial_print;
-        } graphics;
-        struct
-        {
-            BitArray <media_flag> flags;
-            int32_t volume;
-        } media;
-        // much more stuff follows
-    };
-    #define NUM_HOTKEYS 16
-    /**
-     * The hotkey structure
-     * \ingroup grp_gui
-     */
-    struct t_hotkey
-    {
-        std::string name;
-        int16_t mode;
-        int32_t x;
-        int32_t y;
-        int32_t z;
-    };
-    typedef t_hotkey hotkey_array[NUM_HOTKEYS];
 
     /**
      * One tile of the screen. Possibly outdated.
@@ -166,27 +134,27 @@ namespace DFHack
         /*
          * Gui screens
          */
-        /// handle to the interface object
-        t_interface * df_interface;
         /// Get the current top-level view-screen
-        t_viewscreen * GetCurrentScreen();
+        df::viewscreen * GetCurrentScreen();
         /// The DF menu state (designation menu ect)
         uint32_t * df_menu_state;
 
         /*
-         * Hotkeys (DF's zoom locations)
-         */
-        hotkey_array * hotkeys;
-
-        /*
-         * Game settings
-         */
-        t_init * init;
-        
-        /*
          * Window size in tiles
          */
         bool getWindowSize(int32_t & width, int32_t & height);
+
+        /*
+         *Menu width: 
+         *3:3 - menu and area map closed
+         *2:3 - menu open single width
+         *1:3 - menu open double width
+         *1:2 - menu and area map open
+         *2:2 - area map open
+         */
+
+        bool getMenuWidth(uint8_t & menu_width, uint8_t & area_map_width);
+        bool setMenuWidth(const uint8_t menu_width, const uint8_t area_map_width);
         
         /*
          * Screen tiles

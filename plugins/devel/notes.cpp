@@ -10,16 +10,12 @@ using std::vector;
 using std::string;
 using namespace DFHack;
 
-DFhackCExport command_result df_notes (Core * c, vector <string> & parameters);
+command_result df_notes (Core * c, vector <string> & parameters);
 
-DFhackCExport const char * plugin_name ( void )
-{
-    return "notes";
-}
+DFHACK_PLUGIN("notes");
 
 DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
 {
-    commands.clear();
     commands.push_back(PluginCommand("dumpnotes",
                "Dumps in-game notes",
                df_notes));
@@ -31,7 +27,7 @@ DFhackCExport command_result plugin_shutdown ( Core * c )
     return CR_OK;
 }
 
-DFhackCExport command_result df_notes (Core * c, vector <string> & parameters)
+command_result df_notes (Core * c, vector <string> & parameters)
 {
     Console & con = c->con;
     c->Suspend();

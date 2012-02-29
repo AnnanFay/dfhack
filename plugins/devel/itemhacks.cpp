@@ -15,11 +15,11 @@ using namespace DFHack;
 //////////////////////
 // START item choosers
 //////////////////////
-
+/*
 class item_chooser
 {
 public:
-    item_chooser(Core* _c, DFHack::Items* _Items) : c(_c), Items(_Items)
+    item_chooser(Core* _c) : c(_c)
     {
     }
 
@@ -31,13 +31,12 @@ public:
 
 protected:
     Core          *c;
-    DFHack::Items *Items;
 };
 
 class choose_all : public item_chooser
 {
 public:
-    choose_all(Core* _c, ::Items* _Items) : item_chooser(_c, _Items)
+    choose_all(Core* _c) : item_chooser(_c)
     {
     }
 
@@ -51,7 +50,7 @@ public:
 class choose_unknown : public item_chooser
 {
 public:
-    choose_unknown(Core* _c, ::Items* _Items) : item_chooser(_c, _Items)
+    choose_unknown(Core* _c) : item_chooser(_c)
     {
     }
 
@@ -66,9 +65,8 @@ public:
 
         t_itemflags &f = itm->origin->flags;
 
-        return (f.unk1 || f.unk2 || f.unk3 || f.unk4 || /*f.unk5 ||*/
+        return (f.unk1 || f.unk2 || f.unk3 || f.unk4 || 
                 f.unk6 || f.unk7 ||
-                // f.unk8 || f.unk9 || /* Too common */
                 f.unk10 || f.unk11);
     }
 
@@ -147,7 +145,7 @@ protected:
 // END item choosers
 //////////////////////
 
-DFhackCExport command_result df_dumpitems (Core * c, vector <string> & parameters);
+command_result df_dumpitems (Core * c, vector <string> & parameters);
 
 DFhackCExport const char * plugin_name ( void )
 {
@@ -157,7 +155,6 @@ DFhackCExport const char * plugin_name ( void )
 DFhackCExport command_result plugin_init ( Core * c,
                                            std::vector <PluginCommand> &commands)
 {
-    commands.clear();
     commands.push_back(PluginCommand("dumpitems",
                "Dump items\
 \n              Options:\
@@ -171,7 +168,7 @@ DFhackCExport command_result plugin_shutdown ( Core * c )
     return CR_OK;
 }
 
-DFhackCExport command_result df_dumpitems (Core * c, vector <string> & parameters)
+command_result df_dumpitems (Core * c, vector <string> & parameters)
 {
     c->Suspend();
     DFHack::Materials * Materials = c->getMaterials();
@@ -263,6 +260,7 @@ DFhackCExport command_result df_dumpitems (Core * c, vector <string> & parameter
             }
         }
         */
+/*
     }
     c->Resume();
 
@@ -271,3 +269,4 @@ DFhackCExport command_result df_dumpitems (Core * c, vector <string> & parameter
 
     return CR_OK;
 }
+*/

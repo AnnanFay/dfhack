@@ -4,7 +4,7 @@
 #include <PluginManager.h>
 #include <modules/Maps.h>
 #include <modules/Gui.h>
-#include <extra/MapExtras.h>
+//#include <extra/MapExtras.h>
 #include <vector>
 #include <cstdio>
 #include <stack>
@@ -23,12 +23,9 @@ static tthread::mutex * instance_mutex = 0;
 static bool running = false;
 static tthread::thread * QTThread;
 
-DFhackCExport command_result runqt (Core * c, vector <string> & parameters);
+command_result runqt (Core * c, vector <string> & parameters);
 
-DFhackCExport const char * plugin_name ( void )
-{
-    return "Qt Test";
-}
+DFHACK_PLUGIN("qtplug");
 
 DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
 {
@@ -43,7 +40,7 @@ DFhackCExport command_result plugin_shutdown ( Core * c )
     return CR_FAILURE;
 }
 
-DFhackCExport command_result runqt (Core * c, vector <string> & parameters)
+command_result runqt (Core * c, vector <string> & parameters)
 {
     instance_mutex->lock();
     if(!running)

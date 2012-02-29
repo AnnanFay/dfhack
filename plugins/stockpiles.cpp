@@ -1,14 +1,14 @@
 #include "Core.h"
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
+#include "Console.h"
+#include "Export.h"
+#include "PluginManager.h"
 
-#include <DataDefs.h>
-#include <df/world.h>
-#include <df/ui.h>
-#include <df/building_stockpilest.h>
-#include <df/selection_rect.h>
-#include <df/viewscreen_dwarfmodest.h>
+#include "DataDefs.h"
+#include "df/world.h"
+#include "df/ui.h"
+#include "df/building_stockpilest.h"
+#include "df/global_objects.h"
+#include "df/viewscreen_dwarfmodest.h"
 
 using std::vector;
 using std::string;
@@ -25,10 +25,7 @@ using df::building_stockpilest;
 static command_result copystock(Core *c, vector <string> & parameters);
 static bool copystock_guard(Core *c, df::viewscreen *top);
 
-DFhackCExport const char * plugin_name ( void )
-{
-    return "stockpiles";
-}
+DFHACK_PLUGIN("stockpiles");
 
 DFhackCExport command_result plugin_init (Core *c, std::vector <PluginCommand> &commands)
 {

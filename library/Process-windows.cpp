@@ -28,7 +28,6 @@ distribution.
 #define WINVER 0x0501       // OpenThread(), PSAPI, Toolhelp32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <winnt.h>
 #include <psapi.h>
 #include <tlhelp32.h>
 
@@ -161,9 +160,7 @@ Process::Process(VersionInfoFactory * factory)
         identified = true;
         // give the process a data model and memory layout fixed for the base of first module
         my_descriptor  = new VersionInfo(*vinfo);
-        my_descriptor->RebaseAll((uint32_t)d->base);
-        // keep track of created memory_info object so we can destroy it later
-        my_descriptor->setParentProcess(this);
+        my_descriptor->rebaseTo((uint32_t)d->base);
         for(size_t i = 0; i < threads_ids.size();i++)
         {
             HANDLE hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, (DWORD) threads_ids[i]);
@@ -236,28 +233,12 @@ struct HeapBlock
       ULONG reserved;
 };
 */
-void HeapNodes(DWORD pid, map<char *, unsigned int> & heaps)
-{
-    // Create debug buffer
-    PDEBUG_BUFFER db = RtlCreateQueryDebugBuffer(0, FALSE); 
-    // Get process heap data
-    RtlQueryProcessDebugInformation( pid, PDI_HEAPS/* | PDI_HEAP_BLOCKS*/, db);
-    ULONG heapNodeCount = db->HeapInformation ? *PULONG(db->HeapInformation):0;
-    PDEBUG_HEAP_INFORMATION heapInfo = PDEBUG_HEAP_INFORMATION(PULONG(db-> HeapInformation) + 1);
-    // Go through each of the heap nodes and dispaly the information
-    for (unsigned int i = 0; i < heapNodeCount; i++) 
-    {
-        heaps[(char *)heapInfo[i].Base] = i;
-    }
-    // Clean up the buffer
-    RtlDestroyQueryDebugBuffer( db );
-}
-
 // FIXME: NEEDS TESTING!
+// FIXME: <warmist> i noticed that if you enumerate it twice, second time it returns wrong .text region size
 void Process::getMemRanges( vector<t_memrange> & ranges )
 {
     MEMORY_BASIC_INFORMATION MBI;
-    map<char *, unsigned int> heaps;
+    //map<char *, unsigned int> heaps;
     uint64_t movingStart = 0;
     map <char *, string> nameMap;
 
@@ -266,7 +247,7 @@ void Process::getMemRanges( vector<t_memrange> & ranges )
     GetSystemInfo(&si);
     uint64_t PageSize = si.dwPageSize;
     // enumerate heaps
-    HeapNodes(d->my_pid, heaps);
+    // HeapNodes(d->my_pid, heaps);
     // go through all the VM regions, convert them to our internal format
     while (VirtualQueryEx(d->my_handle, (const void*) (movingStart), &MBI, sizeof(MBI)) == sizeof(MBI))
     {
@@ -296,14 +277,7 @@ void Process::getMemRanges( vector<t_memrange> & ranges )
                 if( !(MBI.Type & MEM_PRIVATE) )
                     continue;
                 else
-                {
-                    // could be a heap?
-                    if(heaps.count((char *)temp.start))
-                    {
-                        sprintf(temp.name,"HEAP %d",heaps[(char*)temp.start]);
-                    }
-                    else temp.name[0]=0;
-                }
+                    temp.name[0]=0;
             }
         }
         else
@@ -359,15 +333,15 @@ string Process::getPath()
 
 bool Process::setPermisions(const t_memrange & range,const t_memrange &trgrange)
 {
-	DWORD newprotect=0;
-	if(trgrange.read && !trgrange.write && !trgrange.execute)newprotect=PAGE_READONLY;
-	if(trgrange.read && trgrange.write && !trgrange.execute)newprotect=PAGE_READWRITE;
-	if(!trgrange.read && !trgrange.write && trgrange.execute)newprotect=PAGE_EXECUTE;
-	if(trgrange.read && !trgrange.write && trgrange.execute)newprotect=PAGE_EXECUTE_READ;
-	if(trgrange.read && trgrange.write && trgrange.execute)newprotect=PAGE_EXECUTE_READWRITE;
-	DWORD oldprotect=0;
-	bool result;
-	result=VirtualProtect((LPVOID)range.start,(char *)range.end-(char *)range.start,newprotect,&oldprotect);
-	
-	return result;
+    DWORD newprotect=0;
+    if(trgrange.read && !trgrange.write && !trgrange.execute)newprotect=PAGE_READONLY;
+    if(trgrange.read && trgrange.write && !trgrange.execute)newprotect=PAGE_READWRITE;
+    if(!trgrange.read && !trgrange.write && trgrange.execute)newprotect=PAGE_EXECUTE;
+    if(trgrange.read && !trgrange.write && trgrange.execute)newprotect=PAGE_EXECUTE_READ;
+    if(trgrange.read && trgrange.write && trgrange.execute)newprotect=PAGE_EXECUTE_READWRITE;
+    DWORD oldprotect=0;
+    bool result;
+    result=VirtualProtect((LPVOID)range.start,(char *)range.end-(char *)range.start,newprotect,&oldprotect);
+
+    return result;
 }

@@ -3,34 +3,35 @@
 #include <map>
 #include <vector>
 #include "Core.h"
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
-#include <modules/Maps.h>
-#include <modules/World.h>
-#include <modules/MapCache.h>
-#include <modules/Gui.h>
+#include "Console.h"
+#include "Export.h"
+#include "PluginManager.h"
+#include "modules/Maps.h"
+#include "modules/World.h"
+#include "modules/MapCache.h"
+#include "modules/Gui.h"
 using MapExtras::MapCache;
 using namespace DFHack;
+using namespace df::enums;
+using df::global::world;
 
 /*
  * Anything that might reveal Hell is unsafe.
  */
-bool isSafe(uint32_t x, uint32_t y, uint32_t z, DFHack::Maps *Maps)
+bool isSafe(df::coord c)
 {
-    DFHack::t_feature *local_feature = NULL;
-    DFHack::t_feature *global_feature = NULL;
+    DFHack::t_feature local_feature;
+    DFHack::t_feature global_feature;
     // get features of block
     // error -> obviously not safe to manipulate
-    if(!Maps->ReadFeatures(x,y,z,&local_feature,&global_feature))
-    {
+    if(!Maps::ReadFeatures(c.x >> 4,c.y >> 4,c.z,&local_feature,&global_feature))
         return false;
-    }
+
     // Adamantine tubes and temples lead to Hell
-    if (local_feature && local_feature->type != DFHack::feature_Other)
+    if (local_feature.type == feature_type::deep_special_tube || local_feature.type == feature_type::deep_surface_portal)
         return false;
     // And Hell *is* Hell.
-    if (global_feature && global_feature->type == DFHack::feature_Underworld)
+    if (global_feature.type == feature_type::feature_underworld_from_layer)
         return false;
     // otherwise it's safe.
     return true;
@@ -38,9 +39,7 @@ bool isSafe(uint32_t x, uint32_t y, uint32_t z, DFHack::Maps *Maps)
 
 struct hideblock
 {
-    uint32_t x;
-    uint32_t y;
-    uint32_t z;
+    df::coord c;
     uint8_t hiddens [16][16];
 };
 
@@ -59,16 +58,13 @@ enum revealstate
 
 revealstate revealed = NOT_REVEALED;
 
-DFhackCExport command_result reveal(DFHack::Core * c, std::vector<std::string> & params);
-DFhackCExport command_result unreveal(DFHack::Core * c, std::vector<std::string> & params);
-DFhackCExport command_result revtoggle(DFHack::Core * c, std::vector<std::string> & params);
-DFhackCExport command_result revflood(DFHack::Core * c, std::vector<std::string> & params);
-DFhackCExport command_result nopause(DFHack::Core * c, std::vector<std::string> & params);
+command_result reveal(DFHack::Core * c, std::vector<std::string> & params);
+command_result unreveal(DFHack::Core * c, std::vector<std::string> & params);
+command_result revtoggle(DFHack::Core * c, std::vector<std::string> & params);
+command_result revflood(DFHack::Core * c, std::vector<std::string> & params);
+command_result nopause(DFHack::Core * c, std::vector<std::string> & params);
 
-DFhackCExport const char * plugin_name ( void )
-{
-    return "reveal";
-}
+DFHACK_PLUGIN("reveal");
 
 DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
 {
@@ -125,11 +121,11 @@ command_result nopause (Core * c, std::vector <std::string> & parameters)
 }
 
 
-DFhackCExport command_result reveal(DFHack::Core * c, std::vector<std::string> & params)
+command_result reveal(DFHack::Core * c, std::vector<std::string> & params)
 {
     bool no_hell = true;
     bool pause = true;
-    for(int i = 0; i < params.size();i++)
+    for(size_t i = 0; i < params.size();i++)
     {
         if(params[i]=="hell")
             no_hell = false;
@@ -159,62 +155,41 @@ DFhackCExport command_result reveal(DFHack::Core * c, std::vector<std::string> &
         return CR_FAILURE;
     }
 
-    c->Suspend();
-    DFHack::Maps *Maps =c->getMaps();
+    CoreSuspender suspend(c);
     DFHack::World *World =c->getWorld();
     t_gamemodes gm;
     World->ReadGameMode(gm);
     if(gm.g_mode != GAMEMODE_DWARF)
     {
         con.printerr("Only in fortress mode.\n");
-        c->Resume();
         return CR_FAILURE;
     }
-    if(!Maps->Start())
+    if (!Maps::IsValid())
     {
-        con.printerr("Can't init map.\n");
-        c->Resume();
+        c->con.printerr("Map is not available!\n");
         return CR_FAILURE;
     }
 
-    if(no_hell && !Maps->StartFeatures())
-    {
-        con.printerr("Unable to read local features; can't reveal map safely.\n");
-        c->Resume();
-        return CR_FAILURE;
-    }
-
-    Maps->getSize(x_max,y_max,z_max);
+    Maps::getSize(x_max,y_max,z_max);
     hidesaved.reserve(x_max * y_max * z_max);
-    for(uint32_t x = 0; x< x_max;x++)
+    for (size_t i = 0; i < world->map.map_blocks.size(); i++)
     {
-        for(uint32_t y = 0; y< y_max;y++)
+        df::map_block *block = world->map.map_blocks[i];
+        // in 'no-hell'/'safe' mode, don't reveal blocks with hell and adamantine
+        if (no_hell && !isSafe(block->map_pos))
+            continue;
+        hideblock hb;
+        hb.c = block->map_pos;
+        DFHack::designations40d & designations = block->designation;
+        // for each tile in block
+        for (uint32_t x = 0; x < 16; x++) for (uint32_t y = 0; y < 16; y++)
         {
-            for(uint32_t z = 0; z< z_max;z++)
-            {
-                df_block *block = Maps->getBlock(x,y,z);
-                if(block)
-                {
-                    // in 'no-hell'/'safe' mode, don't reveal blocks with hell and adamantine
-                    if (no_hell && !isSafe(x, y, z, Maps))
-                        continue;
-                    hideblock hb;
-                    hb.x = x;
-                    hb.y = y;
-                    hb.z = z;
-                    DFHack::designations40d & designations = block->designation;
-                    // for each tile in block
-                    for (uint32_t i = 0; i < 16;i++) for (uint32_t j = 0; j < 16;j++)
-                    {
-                        // save hidden state of tile
-                        hb.hiddens[i][j] = designations[i][j].bits.hidden;
-                        // set to revealed
-                        designations[i][j].bits.hidden = 0;
-                    }
-                    hidesaved.push_back(hb);
-                }
-            }
+            // save hidden state of tile
+            hb.hiddens[x][y] = designations[x][y].bits.hidden;
+            // set to revealed
+            designations[x][y].bits.hidden = 0;
         }
+        hidesaved.push_back(hb);
     }
     if(no_hell)
     {
@@ -230,7 +205,6 @@ DFhackCExport command_result reveal(DFHack::Core * c, std::vector<std::string> &
         else
             revealed = DEMON_REVEALED;
     }
-    c->Resume();
     con.print("Map revealed.\n");
     if(!no_hell)
         con.print("Unpausing can unleash the forces of hell, so it has been temporarily disabled.\n");
@@ -238,10 +212,10 @@ DFhackCExport command_result reveal(DFHack::Core * c, std::vector<std::string> &
     return CR_OK;
 }
 
-DFhackCExport command_result unreveal(DFHack::Core * c, std::vector<std::string> & params)
+command_result unreveal(DFHack::Core * c, std::vector<std::string> & params)
 {
     Console & con = c->con;
-    for(int i = 0; i < params.size();i++)
+    for(size_t i = 0; i < params.size();i++)
     {
         if(params[i] == "help" || params[i] == "?")
         {
@@ -254,57 +228,50 @@ DFhackCExport command_result unreveal(DFHack::Core * c, std::vector<std::string>
         con.printerr("There's nothing to revert!\n");
         return CR_FAILURE;
     }
-    c->Suspend();
-    DFHack::Maps *Maps =c->getMaps();
+    CoreSuspender suspend(c);
+
     DFHack::World *World =c->getWorld();
     t_gamemodes gm;
     World->ReadGameMode(gm);
     if(gm.g_mode != GAMEMODE_DWARF)
     {
         con.printerr("Only in fortress mode.\n");
-        c->Resume();
         return CR_FAILURE;
     }
-    Maps = c->getMaps();
-    if(!Maps->Start())
+    if (!Maps::IsValid())
     {
-        con.printerr("Can't init map.\n");
-        c->Resume();
+        c->con.printerr("Map is not available!\n");
         return CR_FAILURE;
     }
 
     // Sanity check: map size
     uint32_t x_max_b, y_max_b, z_max_b;
-    Maps->getSize(x_max_b,y_max_b,z_max_b);
+    Maps::getSize(x_max_b,y_max_b,z_max_b);
     if(x_max != x_max_b || y_max != y_max_b || z_max != z_max_b)
     {
         con.printerr("The map is not of the same size...\n");
-        c->Resume();
         return CR_FAILURE;
     }
-
-    // FIXME: add more sanity checks / MAP ID
 
     for(size_t i = 0; i < hidesaved.size();i++)
     {
         hideblock & hb = hidesaved[i];
-        df_block * b = Maps->getBlock(hb.x,hb.y,hb.z);
-        for (uint32_t i = 0; i < 16;i++) for (uint32_t j = 0; j < 16;j++)
+        df::map_block * b = Maps::getBlockAbs(hb.c.x,hb.c.y,hb.c.z);
+        for (uint32_t x = 0; x < 16;x++) for (uint32_t y = 0; y < 16;y++)
         {
-            b->designation[i][j].bits.hidden = hb.hiddens[i][j];
+            b->designation[x][y].bits.hidden = hb.hiddens[x][y];
         }
     }
     // give back memory.
     hidesaved.clear();
     revealed = NOT_REVEALED;
     con.print("Map hidden!\n");
-    c->Resume();
     return CR_OK;
 }
 
-DFhackCExport command_result revtoggle (DFHack::Core * c, std::vector<std::string> & params)
+command_result revtoggle (DFHack::Core * c, std::vector<std::string> & params)
 {
-    for(int i = 0; i < params.size();i++)
+    for(size_t i = 0; i < params.size();i++)
     {
         if(params[i] == "help" || params[i] == "?")
         {
@@ -322,9 +289,9 @@ DFhackCExport command_result revtoggle (DFHack::Core * c, std::vector<std::strin
     }
 }
 
-DFhackCExport command_result revflood(DFHack::Core * c, std::vector<std::string> & params)
+command_result revflood(DFHack::Core * c, std::vector<std::string> & params)
 {
-    for(int i = 0; i < params.size();i++)
+    for(size_t i = 0; i < params.size();i++)
     {
         if(params[i] == "help" || params[i] == "?")
         {
@@ -334,22 +301,18 @@ DFhackCExport command_result revflood(DFHack::Core * c, std::vector<std::string>
             return CR_OK;
         }
     }
-    c->Suspend();
+    CoreSuspender suspend(c);
     uint32_t x_max,y_max,z_max;
-    Maps * Maps = c->getMaps();
     Gui * Gui = c->getGui();
     World * World = c->getWorld();
-    // init the map
-    if(!Maps->Start())
+    if (!Maps::IsValid())
     {
-        c->con.printerr("Can't init map. Make sure you have a map loaded in DF.\n");
-        c->Resume();
+        c->con.printerr("Map is not available!\n");
         return CR_FAILURE;
     }
     if(revealed != NOT_REVEALED)
     {
         c->con.printerr("This is only safe to use with non-revealed map.\n");
-        c->Resume();
         return CR_FAILURE;
     }
     t_gamemodes gm;
@@ -357,11 +320,10 @@ DFhackCExport command_result revflood(DFHack::Core * c, std::vector<std::string>
     if(gm.g_type != GAMETYPE_DWARF_MAIN && gm.g_mode != GAMEMODE_DWARF )
     {
         c->con.printerr("Only in proper dwarf mode.\n");
-        c->Resume();
         return CR_FAILURE;
     }
     int32_t cx, cy, cz;
-    Maps->getSize(x_max,y_max,z_max);
+    Maps::getSize(x_max,y_max,z_max);
     uint32_t tx_max = x_max * 16;
     uint32_t ty_max = y_max * 16;
 
@@ -369,38 +331,27 @@ DFhackCExport command_result revflood(DFHack::Core * c, std::vector<std::string>
     if(cx == -30000)
     {
         c->con.printerr("Cursor is not active. Point the cursor at some empty space you want to be unhidden.\n");
-        c->Resume();
         return CR_FAILURE;
     }
     DFCoord xy ((uint32_t)cx,(uint32_t)cy,cz);
-    MapCache * MCache = new MapCache(Maps);
-    int16_t tt = MCache->tiletypeAt(xy);
+    MapCache * MCache = new MapCache;
+    df::tiletype tt = MCache->tiletypeAt(xy);
     if(isWallTerrain(tt))
     {
         c->con.printerr("Point the cursor at some empty space you want to be unhidden.\n");
         delete MCache;
-        c->Resume();
         return CR_FAILURE;
     }
     // hide all tiles, flush cache
-    Maps->getSize(x_max,y_max,z_max);
+    Maps::getSize(x_max,y_max,z_max);
 
-    for(uint32_t x = 0; x< x_max;x++)
+    for(size_t i = 0; i < world->map.map_blocks.size(); i++)
     {
-        for(uint32_t y = 0; y< y_max;y++)
+        df::map_block * b = world->map.map_blocks[i];
+        // change the hidden flag to 0
+        for (uint32_t x = 0; x < 16; x++) for (uint32_t y = 0; y < 16; y++)
         {
-            for(uint32_t z = 0; z< z_max;z++)
-            {
-                df_block * b = Maps->getBlock(x,y,z);
-                if(b)
-                {
-                    // change the hidden flag to 0
-                    for (uint32_t i = 0; i < 16;i++) for (uint32_t j = 0; j < 16;j++)
-                    {
-                        b->designation[i][j].bits.hidden = 1;
-                    }
-                }
-            }
+            b->designation[x][y].bits.hidden = 1;
         }
     }
     MCache->trash();
@@ -418,62 +369,48 @@ DFhackCExport command_result revflood(DFHack::Core * c, std::vector<std::string>
 
         if(!MCache->testCoord(current))
             continue;
-        int16_t tt = MCache->tiletypeAt(current);
-        t_designation des = MCache->designationAt(current);
+        df::tiletype tt = MCache->tiletypeAt(current);
+        df::tile_designation des = MCache->designationAt(current);
         if(!des.bits.hidden)
         {
             continue;
         }
-        const TileRow * r = getTileRow(tt);
-        /*
-        if(!r)
-        {
-            cerr << "unknown tiletype! " << dec << tt << endl;
-            continue;
-        }
-        */
         bool below = 0;
         bool above = 0;
         bool sides = 0;
         bool unhide = 1;
         // by tile shape, determine behavior and action
-        switch (r->shape)
+        switch (tileShape(tt))
         {
-            // walls:
-            case WALL:
-            case PILLAR:
-                if(from_below)
-                    unhide = 0;
-                break;
-            // air/free space
-            case EMPTY:
-            case RAMP_TOP:
-            case STAIR_UPDOWN:
-            case STAIR_DOWN:
-            case BROOK_TOP:
-                above = below = sides = true;
-                break;
-            // has floor
-            case FORTIFICATION:
-            case STAIR_UP:
-            case RAMP:
-            case FLOOR:
-            case TREE_DEAD:
-            case TREE_OK:
-            case SAPLING_DEAD:
-            case SAPLING_OK:
-            case SHRUB_DEAD:
-            case SHRUB_OK:
-            case BOULDER:
-            case PEBBLES:
-            case BROOK_BED:
-            case RIVER_BED:
-            case ENDLESS_PIT:
-            case POOL:
-                if(from_below)
-                    unhide = 0;
-                above = sides = true;
-                break;
+        // walls:
+        case tiletype_shape::WALL:
+            if(from_below)
+                unhide = 0;
+            break;
+        // air/free space
+        case tiletype_shape::EMPTY:
+        case tiletype_shape::RAMP_TOP:
+        case tiletype_shape::STAIR_UPDOWN:
+        case tiletype_shape::STAIR_DOWN:
+        case tiletype_shape::BROOK_TOP:
+            above = below = sides = true;
+            break;
+        // has floor
+        case tiletype_shape::FORTIFICATION:
+        case tiletype_shape::STAIR_UP:
+        case tiletype_shape::RAMP:
+        case tiletype_shape::FLOOR:
+        case tiletype_shape::TREE:
+        case tiletype_shape::SAPLING:
+        case tiletype_shape::SHRUB:
+        case tiletype_shape::BOULDER:
+        case tiletype_shape::PEBBLES:
+        case tiletype_shape::BROOK_BED:
+        case tiletype_shape::ENDLESS_PIT:
+            if(from_below)
+                unhide = 0;
+            above = sides = true;
+            break;
         }
         if(unhide)
         {
@@ -502,6 +439,5 @@ DFhackCExport command_result revflood(DFHack::Core * c, std::vector<std::string>
     }
     MCache->WriteAll();
     delete MCache;
-    c->Resume();
     return CR_OK;
 }

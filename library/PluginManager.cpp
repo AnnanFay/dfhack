@@ -120,12 +120,20 @@ struct Plugin::RefLock
     mutex * mut;
     int refcount;
 };
+
+struct Plugin::RefAutolock
+{
+    RefLock * lock;
+    RefAutolock(RefLock * lck):lock(lck){ lock->lock(); };
+    ~RefAutolock(){ lock->unlock(); };
+};
+
 Plugin::Plugin(Core * core, const std::string & filepath, const std::string & _filename, PluginManager * pm)
 {
     filename = filepath;
     parent = pm;
     name.reserve(_filename.size());
-    for(int i = 0; i < _filename.size();i++)
+    for(size_t i = 0; i < _filename.size();i++)
     {
         char ch = _filename[i];
         if(ch == '.')
@@ -154,15 +162,13 @@ Plugin::~Plugin()
 
 bool Plugin::load()
 {
-    access->lock();
+    RefAutolock lock(access);
     if(state == PS_BROKEN)
     {
-        access->unlock();
         return false;
     }
     else if(state == PS_LOADED)
     {
-        access->unlock();
         return true;
     }
     Core & c = Core::getInstance();
@@ -172,16 +178,23 @@ bool Plugin::load()
     {
         con.printerr("Can't load plugin %s\n", filename.c_str());
         state = PS_BROKEN;
-        access->unlock();
         return false;
     }
-    const char * (*_PlugName)() =(const char * (*)()) LookupPlugin(plug, "plugin_name");
-    if(!_PlugName)
+    const char ** plug_name =(const char ** ) LookupPlugin(plug, "name");
+    if(!plug_name)
     {
         con.printerr("Plugin %s has no name.\n", filename.c_str());
         ClosePlugin(plug);
         state = PS_BROKEN;
-        access->unlock();
+        return false;
+    }
+    const char ** plug_version =(const char ** ) LookupPlugin(plug, "version");
+    if(!plug_version || strcmp(DFHACK_VERSION, *plug_version) != 0)
+    {
+        con.printerr("Plugin sx was not built for this version of DFHack.\n"
+                     "Plugin: %s, DFHack: %s\n", *plug_name, *plug_version, DFHACK_VERSION);
+        ClosePlugin(plug);
+        state = PS_BROKEN;
         return false;
     }
     plugin_init = (command_result (*)(Core *, std::vector <PluginCommand> &)) LookupPlugin(plug, "plugin_init");
@@ -190,20 +203,18 @@ bool Plugin::load()
         con.printerr("Plugin %s has no init function.\n", filename.c_str());
         ClosePlugin(plug);
         state = PS_BROKEN;
-        access->unlock();
         return false;
     }
     plugin_status = (command_result (*)(Core *, std::string &)) LookupPlugin(plug, "plugin_status");
     plugin_onupdate = (command_result (*)(Core *)) LookupPlugin(plug, "plugin_onupdate");
     plugin_shutdown = (command_result (*)(Core *)) LookupPlugin(plug, "plugin_shutdown");
     plugin_onstatechange = (command_result (*)(Core *, state_change_event)) LookupPlugin(plug, "plugin_onstatechange");
-    //name = _PlugName();
+    this->name = *plug_name;
     plugin_lib = plug;
     if(plugin_init(&c,commands) == CR_OK)
     {
         state = PS_LOADED;
         parent->registerCommands(this);
-        access->unlock();
         return true;
     }
     else
@@ -211,10 +222,8 @@ bool Plugin::load()
         con.printerr("Plugin %s has failed to initialize properly.\n", filename.c_str());
         ClosePlugin(plugin_lib);
         state = PS_BROKEN;
-        access->unlock();
         return false;
     }
-    // not reachable
 }
 
 bool Plugin::unload()
@@ -274,7 +283,7 @@ command_result Plugin::invoke( std::string & command, std::vector <std::string> 
     access->lock_add();
     if(state == PS_LOADED)
     {
-        for (int i = 0; i < commands.size();i++)
+        for (size_t i = 0; i < commands.size();i++)
         {
             PluginCommand &cmd = commands[i];
             if(cmd.name == command)
@@ -322,7 +331,7 @@ bool Plugin::can_invoke_hotkey( std::string & command, df::viewscreen *top )
     access->lock_add();
     if(state == PS_LOADED)
     {
-        for (int i = 0; i < commands.size();i++)
+        for (size_t i = 0; i < commands.size();i++)
         {
             PluginCommand &cmd = commands[i];
             if(cmd.name == command)
@@ -384,7 +393,7 @@ PluginManager::PluginManager(Core * core)
     cmdlist_mutex = new mutex();
     vector <string> filez;
     getdir(path, filez);
-    for(int i = 0; i < filez.size();i++)
+    for(size_t i = 0; i < filez.size();i++)
     {
         if(hasEnding(filez[i],searchstr))
         {
@@ -398,7 +407,7 @@ PluginManager::PluginManager(Core * core)
 
 PluginManager::~PluginManager()
 {
-    for(int i = 0; i < all_plugins.size();i++)
+    for(size_t i = 0; i < all_plugins.size();i++)
     {
         delete all_plugins[i];
     }
@@ -408,7 +417,7 @@ PluginManager::~PluginManager()
 
 Plugin *PluginManager::getPluginByName (const std::string & name)
 {
-    for(int i = 0; i < all_plugins.size(); i++)
+    for(size_t i = 0; i < all_plugins.size(); i++)
     {
         if(name == all_plugins[i]->name)
             return all_plugins[i];
@@ -441,7 +450,7 @@ bool PluginManager::CanInvokeHotkey(std::string &command, df::viewscreen *top)
 
 void PluginManager::OnUpdate( void )
 {
-    for(int i = 0; i < all_plugins.size(); i++)
+    for(size_t i = 0; i < all_plugins.size(); i++)
     {
         all_plugins[i]->on_update();
     }
@@ -449,7 +458,7 @@ void PluginManager::OnUpdate( void )
 
 void PluginManager::OnStateChange( state_change_event event )
 {
-    for(int i = 0; i < all_plugins.size(); i++)
+    for(size_t i = 0; i < all_plugins.size(); i++)
     {
         all_plugins[i]->on_state_change(event);
     }
@@ -460,7 +469,7 @@ void PluginManager::registerCommands( Plugin * p )
 {
     cmdlist_mutex->lock();
     vector <PluginCommand> & cmds = p->commands;
-    for(int i = 0; i < cmds.size();i++)
+    for(size_t i = 0; i < cmds.size();i++)
     {
         belongs[cmds[i].name] = p;
     }
@@ -472,7 +481,7 @@ void PluginManager::unregisterCommands( Plugin * p )
 {
     cmdlist_mutex->lock();
     vector <PluginCommand> & cmds = p->commands;
-    for(int i = 0; i < cmds.size();i++)
+    for(size_t i = 0; i < cmds.size();i++)
     {
         belongs.erase(cmds[i].name);
     }

@@ -52,19 +52,11 @@ namespace DFHack
 {
     class Process;
     class Module;
-    class Units;
-    class Engravings;
-    class Maps;
     class Gui;
     class World;
     class Materials;
-    class Items;
-    class Translation;
-    class Vegetation;
-    class Constructions;
-    class Vermin;
     class Notes;
-    class VersionInfo;
+    struct VersionInfo;
     class VersionInfoFactory;
     class PluginManager;
     class Core;
@@ -85,6 +77,12 @@ namespace DFHack
         friend int  ::SDL_PollEvent(SDL::Event *);
         friend int  ::SDL_Init(uint32_t flags);
         friend int  ::wgetch(WINDOW * w);
+        friend int  ::egg_init(void);
+        friend int  ::egg_shutdown(void);
+        friend int  ::egg_tick(void);
+        friend int  ::egg_prerender(void);
+        friend int  ::egg_sdl_event(SDL::Event* event);
+        friend int  ::egg_curses_event(int orig_return);
     public:
         /// Get the single Core instance or make one.
         static Core& getInstance()
@@ -100,28 +98,12 @@ namespace DFHack
         /// Is everything OK?
         bool isValid(void) { return !errorstate; }
 
-        /// get the creatures module
-        Units * getUnits();
-        /// get the engravings module
-        Engravings * getEngravings();
-        /// get the maps module
-        Maps * getMaps();
         /// get the gui module
         Gui * getGui();
         /// get the world module
         World * getWorld();
         /// get the materials module
         Materials * getMaterials();
-        /// get the items module
-        Items * getItems();
-        /// get the translation module
-        Translation * getTranslation();
-        /// get the vegetation module
-        Vegetation * getVegetation();
-        /// get the constructions module
-        Constructions * getConstructions();
-        /// get the vermin module
-        Vermin * getVermin();
         /// get the notes module
         Notes * getNotes();
         /// get the graphic module
@@ -149,9 +131,10 @@ namespace DFHack
     private:
         Core();
         bool Init();
-        int Update   (void);
+        int Update (void);
+        int TileUpdate (void);
         int Shutdown (void);
-        int SDL_Event(SDL::Event* event, int orig_return);
+        int SDL_Event(SDL::Event* event);
         bool ncurses_wgetch(int in, int & out);
         Core(Core const&);              // Don't Implement
         void operator=(Core const&);    // Don't implement
@@ -170,17 +153,9 @@ namespace DFHack
         // Module storage
         struct
         {
-            Units * pUnits;
-            Engravings * pEngravings;
-            Maps * pMaps;
             Gui * pGui;
             World * pWorld;
             Materials * pMaterials;
-            Items * pItems;
-            Translation * pTranslation;
-            Vegetation * pVegetation;
-            Constructions * pConstructions;
-            Vermin * pVermin;
             Notes * pNotes;
             Graphic * pGraphic;
         } s_mods;

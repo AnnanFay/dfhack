@@ -1,197 +1,175 @@
-// Designate all matching plants for gathering/cutting
-
-#include <iostream>
-#include <vector>
-#include <map>
-#include <set>
-#include <stddef.h>
-#include <assert.h>
-#include <string.h>
+// (un)designate matching plants for gathering/cutting
 
 #include "Core.h"
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
-#include <modules/Maps.h>
-#include <modules/Materials.h>
-#include <modules/Vegetation.h>
-#include <TileTypes.h>
+#include "Console.h"
+#include "Export.h"
+#include "PluginManager.h"
 
-using namespace std;
+#include "DataDefs.h"
+#include "TileTypes.h"
+#include "df/world.h"
+#include "df/map_block.h"
+#include "df/tile_dig_designation.h"
+#include "df/plant_raw.h"
+
+#include "modules/Vegetation.h"
+#include <set>
+
+using std::string;
+using std::vector;
+using std::set;
 using namespace DFHack;
+using namespace df::enums;
 
-DFhackCExport command_result df_getplants (Core * c, vector <string> & parameters);
+using df::global::world;
 
-DFhackCExport const char * plugin_name ( void )
+command_result df_getplants (Core * c, vector <string> & parameters)
 {
-	return "getplants";
+    string plantMatStr = "";
+    set<int> plantIDs;
+    set<string> plantNames;
+    bool deselect = false, exclude = false, treesonly = false, shrubsonly = false, all = false;
+
+    int count = 0;
+    for (size_t i = 0; i < parameters.size(); i++)
+    {
+        if(parameters[i] == "help" || parameters[i] == "?")
+            return CR_WRONG_USAGE;
+        else if(parameters[i] == "-t")
+            treesonly = true;
+        else if(parameters[i] == "-s")
+            shrubsonly = true;
+        else if(parameters[i] == "-c")
+            deselect = true;
+        else if(parameters[i] == "-x")
+            exclude = true;
+        else if(parameters[i] == "-a")
+            all = true;
+        else
+            plantNames.insert(parameters[i]);
+    }
+    if (treesonly && shrubsonly)
+    {
+        c->con.printerr("Cannot specify both -t and -s at the same time!\n");
+        return CR_WRONG_USAGE;
+    }
+    if (all && exclude)
+    {
+        c->con.printerr("Cannot specify both -a and -x at the same time!\n");
+        return CR_WRONG_USAGE;
+    }
+    if (all && plantNames.size())
+    {
+        c->con.printerr("Cannot specify -a along with plant IDs!\n");
+        return CR_WRONG_USAGE;
+    }
+
+    CoreSuspender suspend(c);
+
+    for (size_t i = 0; i < world->raws.plants.all.size(); i++)
+    {
+        df::plant_raw *plant = world->raws.plants.all[i];
+        if (all)
+            plantIDs.insert(i);
+        else if (plantNames.find(plant->id) != plantNames.end())
+        {
+            plantNames.erase(plant->id);
+            plantIDs.insert(i);
+        }
+    }
+    if (plantNames.size() > 0)
+    {
+        c->con.printerr("Invalid plant ID(s):");
+        for (set<string>::const_iterator it = plantNames.begin(); it != plantNames.end(); it++)
+            c->con.printerr(" %s", it->c_str());
+        c->con.printerr("\n");
+        return CR_FAILURE;
+    }
+
+    if (plantIDs.size() == 0)
+    {
+        c->con.print("Valid plant IDs:\n");
+        for (size_t i = 0; i < world->raws.plants.all.size(); i++)
+        {
+            df::plant_raw *plant = world->raws.plants.all[i];
+            if (plant->flags.is_set(plant_raw_flags::GRASS))
+                continue;
+            c->con.print("* (%s) %s - %s\n", plant->flags.is_set(plant_raw_flags::TREE) ? "tree" : "shrub", plant->id.c_str(), plant->name.c_str());
+        }
+        return CR_OK;
+    }
+
+    count = 0;
+    for (size_t i = 0; i < world->map.map_blocks.size(); i++)
+    {
+        df::map_block *cur = world->map.map_blocks[i];
+        bool dirty = false;
+        for (size_t j = 0; j < cur->plants.size(); j++)
+        {
+            const df::plant *plant = cur->plants[j];
+            int x = plant->pos.x % 16;
+            int y = plant->pos.y % 16;
+            if (plantIDs.find(plant->material) != plantIDs.end())
+            {
+                if (exclude)
+                    continue;
+            }
+            else
+            {
+                if (!exclude)
+                    continue;
+            }
+            df::tiletype_shape shape = tileShape(cur->tiletype[x][y]);
+            df::tiletype_special special = tileSpecial(cur->tiletype[x][y]);
+            if (plant->flags.bits.is_shrub && (treesonly || !(shape == tiletype_shape::SHRUB && special != tiletype_special::DEAD)))
+                continue;
+            if (!plant->flags.bits.is_shrub && (shrubsonly || !(shape == tiletype_shape::TREE)))
+                continue;
+            if (cur->designation[x][y].bits.hidden)
+                continue;
+            if (deselect && cur->designation[x][y].bits.dig == tile_dig_designation::Default)
+            {
+                cur->designation[x][y].bits.dig = tile_dig_designation::No;
+                dirty = true;
+                ++count;
+            }
+            if (!deselect && cur->designation[x][y].bits.dig == tile_dig_designation::No)
+            {
+                cur->designation[x][y].bits.dig = tile_dig_designation::Default;
+                dirty = true;
+                ++count;
+            }
+        }
+        if (dirty)
+            cur->flags.bits.designated = true;
+    }
+    if (count)
+        c->con.print("Updated %d plant designations.\n", count);
+    return CR_OK;
 }
+
+DFHACK_PLUGIN("getplants");
 
 DFhackCExport command_result plugin_init ( Core * c, vector <PluginCommand> &commands)
 {
-	commands.clear();
-	commands.push_back(PluginCommand("getplants", "Cut down all of the specified trees or gather all of the specified shrubs", df_getplants));
-	return CR_OK;
+    commands.push_back(PluginCommand(
+        "getplants", "Cut down all of the specified trees or gather specified shrubs",
+        df_getplants, false,
+        "  Specify the types of trees to cut down and/or shrubs to gather by their\n"
+        "  plant IDs, separated by spaces.\n"
+        "Options:\n"
+        "  -t - Select trees only (exclude shrubs)\n"
+        "  -s - Select shrubs only (exclude trees)\n"
+        "  -c - Clear designations instead of setting them\n"
+        "  -x - Apply selected action to all plants except those specified\n"
+        "  -a - Select every type of plant (obeys -t/-s)\n"
+        "Specifying both -t and -s will have no effect.\n"
+        "If no plant IDs are specified, all valid plant IDs will be listed.\n"
+    ));
+    return CR_OK;
 }
 
 DFhackCExport command_result plugin_shutdown ( Core * c )
 {
-	return CR_OK;
-}
-
-DFhackCExport command_result df_getplants (Core * c, vector <string> & parameters)
-{
-	uint32_t x_max,y_max,z_max;
-	designations40d designations;
-	tiletypes40d tiles;
-	t_blockflags blockflags;
-	string plantMatStr = "";
-	set<int> plantIDs;
-	set<string> plantNames;
-	bool deselect = false, exclude = false, treesonly = false, shrubsonly = false;
-
-	bool dirty = false;
-	int count = 0;
-	for (size_t i = 0; i < parameters.size(); i++)
-	{
-		if(parameters[i] == "help" || parameters[i] == "?")
-		{
-			c->con.print("Specify the types of trees to cut down and/or shrubs to gather by their plant names, separated by spaces.\n"
-				"Options:\n"
-				"\t-t - Select trees only (exclude shrubs)\n"
-				"\t-s - Select shrubs only (exclude trees)\n"
-				"\t-c - Clear designations instead of setting them\n"
-				"\t-x - Apply selected action to all plants except those specified\n"
-				"Specifying both -t and -s will have no effect.\n"
-				"If no plant IDs are specified, all valid plant IDs will be listed.\n"
-				);
-			return CR_OK;
-		}
-		else if(parameters[i] == "-t")
-			treesonly = true;
-		else if(parameters[i] == "-s")
-			shrubsonly = true;
-		else if(parameters[i] == "-c")
-			deselect = true;
-		else if(parameters[i] == "-x")
-			exclude = true;
-		else	plantNames.insert(parameters[i]);
-	}
-	c->Suspend();
-
-	Materials *mats = c->getMaterials();
-	for (vector<df_plant_type *>::const_iterator it = mats->df_organic->begin(); it != mats->df_organic->end(); it++)
-	{
-		df_plant_type &plant = **it;
-		if (plantNames.find(plant.ID) != plantNames.end())
-		{
-			plantNames.erase(plant.ID);
-			plantIDs.insert(it - mats->df_organic->begin());
-		}
-	}
-	if (plantNames.size() > 0)
-	{
-		c->con.printerr("Invalid plant ID(s):");
-		for (set<string>::const_iterator it = plantNames.begin(); it != plantNames.end(); it++)
-			c->con.printerr(" %s", it->c_str());
-		c->con.printerr("\n");
-		c->Resume();
-		return CR_FAILURE;
-	}
-
-	if (plantIDs.size() == 0)
-	{
-		c->con.print("Valid plant IDs:\n");
-		for (vector<df_plant_type *>::const_iterator it = mats->df_organic->begin(); it != mats->df_organic->end(); it++)
-		{
-			df_plant_type &plant = **it;
-			if (plant.flags.is_set(PLANT_GRASS))
-				continue;
-			c->con.print("* (%s) %s - %s\n", plant.flags.is_set(PLANT_TREE) ? "tree" : "shrub", plant.ID.c_str(), plant.name.c_str());
-		}
-		c->Resume();
-		return CR_OK;
-	}
-
-	Maps *maps = c->getMaps();
-
-	// init the map
-	if (!maps->Start())
-	{
-		c->con.printerr("Can't init map.\n");
-		c->Resume();
-		return CR_FAILURE;
-	}
-
-	maps->getSize(x_max,y_max,z_max);
-	// walk the map
-	for (uint32_t x = 0; x < x_max; x++)
-	{
-		for (uint32_t y = 0; y < y_max; y++)
-		{
-			for (uint32_t z = 0; z < z_max; z++)
-			{
-				if (maps->getBlock(x,y,z))
-				{
-					dirty = false;
-					maps->ReadDesignations(x,y,z, &designations);
-					maps->ReadTileTypes(x,y,z, &tiles);
-					maps->ReadBlockFlags(x,y,z, blockflags);
-
-					vector<df_plant *> *plants;
-					if (maps->ReadVegetation(x, y, z, plants))
-					{
-						for (vector<df_plant *>::const_iterator it = plants->begin(); it != plants->end(); it++)
-						{
-							const df_plant &plant = **it;
-							uint32_t tx = plant.x % 16;
-							uint32_t ty = plant.y % 16;
-							if (plantIDs.find(plant.material) != plantIDs.end())
-							{
-								if (exclude)
-									continue;
-							}
-							else
-							{
-								if (!exclude)
-									continue;
-							}
-
-							TileShape shape = tileShape(tiles[tx][ty]);
-							if (plant.is_shrub && (treesonly || shape != SHRUB_OK))
-								continue;
-							if (!plant.is_shrub && (shrubsonly || (shape != TREE_OK && shape != TREE_DEAD)))
-								continue;
-							if (designations[tx][ty].bits.hidden)
-								continue;
-							if (deselect && designations[tx][ty].bits.dig != designation_no)
-							{
-								designations[tx][ty].bits.dig = designation_no;
-								dirty = true;
-								++count;
-							}
-							if (!deselect && designations[tx][ty].bits.dig != designation_default)
-							{
-								designations[tx][ty].bits.dig = designation_default;
-								dirty = true;
-								++count;
-							}
-						}
-					}
-					// If anything was changed, write it all.
-					if (dirty)
-					{
-						blockflags.bits.designated = 1;
-						maps->WriteDesignations(x,y,z, &designations);
-						maps->WriteBlockFlags(x,y,z, blockflags);
-						dirty = false;
-					}
-				}
-			}
-		}
-	}
-	c->Resume();
-	if (count)
-		c->con.print("Updated %d plant designations.\n", count);
-	return CR_OK;
+    return CR_OK;
 }

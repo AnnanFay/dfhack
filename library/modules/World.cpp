@@ -38,7 +38,15 @@ using namespace std;
 #include "ModuleFactory.h"
 #include "Core.h"
 
+#include "MiscUtils.h"
+
+#include "DataDefs.h"
+#include "df/world.h"
+#include "df/historical_figure.h"
+
 using namespace DFHack;
+
+using df::global::world;
 
 Module* DFHack::createWorld()
 {
@@ -49,16 +57,12 @@ struct World::Private
 {
     Private()
     {
-        Inited = StartedTime = StartedWeather = StartedMode = PauseInited = false;
+        Inited = PauseInited = StartedWeather = StartedMode = false;
     }
     bool Inited;
 
     bool PauseInited;
     void * pause_state_offset;
-
-    bool StartedTime;
-    void * year_offset;
-    void * tick_offset;
 
     bool StartedWeather;
     char * weather_offset;
@@ -67,9 +71,6 @@ struct World::Private
     void * gamemode_offset;
     void * controlmode_offset;
     void * controlmodecopy_offset;
-
-    bool StartedFolder;
-    void * folder_name_offset;
 
     Process * owner;
 };
@@ -81,42 +82,19 @@ World::World()
     d->owner = c.p;
     wmap = 0;
 
-    OffsetGroup * OG_World = c.vinfo->getGroup("World");
-    try
-    {
-        d->year_offset = OG_World->getAddress( "current_year" );
-        d->tick_offset = OG_World->getAddress( "current_tick" );
-        d->StartedTime = true;
-    }
-    catch(Error::All &){};
-    OffsetGroup * OG_Gui = c.vinfo->getGroup("GUI");
-    try
-    {
-        d->pause_state_offset = OG_Gui->getAddress ("pause_state");
+    d->pause_state_offset = (void *) c.vinfo->getAddress ("pause_state");
+    if(d->pause_state_offset)
         d->PauseInited = true;
-    }
-    catch(exception &){};
-    try
+
+    d->weather_offset = (char *) c.vinfo->getAddress( "current_weather" );
+    if(d->weather_offset)
     {
-        d->weather_offset = OG_World->getAddress( "current_weather" );
         wmap = (weather_map *) d->weather_offset;
         d->StartedWeather = true;
     }
-    catch(Error::All &){};
-    try
-    {
-        d->gamemode_offset = OG_World->getAddress( "game_mode" );
-        d->controlmode_offset = OG_World->getAddress( "control_mode" );
-        d->StartedMode = true;
-    }
-    catch(Error::All &){};
-    try
-    {
-        d->folder_name_offset = OG_World->getAddress( "save_folder" );
-        d->StartedFolder = true;
-    }
-    catch(Error::All &){};
-
+    d->gamemode_offset = (void *) c.vinfo->getAddress( "game_mode" );
+    d->controlmode_offset = (void *) c.vinfo->getAddress( "control_mode" );
+    d->StartedMode = true;
 
     d->Inited = true;
 }
@@ -139,28 +117,24 @@ bool World::Finish()
 bool World::ReadPauseState()
 {
     if(!d->PauseInited) return false;
-    uint32_t pauseState = d->owner->readDWord (d->pause_state_offset);
+    uint8_t pauseState = d->owner->readByte (d->pause_state_offset);
     return pauseState & 1;
 }
 
 void World::SetPauseState(bool paused)
 {
     if(!d->PauseInited) return;
-    d->owner->writeDWord (d->pause_state_offset, paused);
+    d->owner->writeByte (d->pause_state_offset, paused);
 }
 
 uint32_t World::ReadCurrentYear()
 {
-    if(d->Inited && d->StartedTime)
-        return(d->owner->readDWord(d->year_offset));
-    return 0;
+    return *df::global::cur_year;
 }
 
 uint32_t World::ReadCurrentTick()
 {
-    if(d->Inited && d->StartedTime)
-        return(d->owner->readDWord(d->tick_offset));
-    return 0;
+    return *df::global::cur_year_tick;
 }
 
 bool World::ReadGameMode(t_gamemodes& rd)
@@ -235,9 +209,73 @@ void World::SetCurrentWeather(uint8_t weather)
 
 string World::ReadWorldFolder()
 {
-    if (d->Inited && d->StartedFolder)
+    return world->unk_192bd8.save_dir;
+}
+
+static PersistentDataItem dataFromHFig(df::historical_figure *hfig)
+{
+    return PersistentDataItem(hfig->id, hfig->name.first_name, &hfig->name.nickname, hfig->name.words);
+}
+
+PersistentDataItem World::AddPersistentData(const std::string &key)
+{
+    std::vector<df::historical_figure*> &hfvec = df::historical_figure::get_vector();
+
+    int new_id = -100;
+    if (hfvec.size() > 0 && hfvec[0]->id <= new_id)
+        new_id = hfvec[0]->id-1;
+
+    df::historical_figure *hfig = new df::historical_figure();
+    hfig->id = new_id;
+    hfig->name.has_name = true;
+    hfig->name.first_name = key;
+    memset(hfig->name.words, 0xFF, sizeof(hfig->name.words));
+
+    hfvec.insert(hfvec.begin(), hfig);
+    return dataFromHFig(hfig);
+}
+
+PersistentDataItem World::GetPersistentData(const std::string &key)
+{
+    std::vector<df::historical_figure*> &hfvec = df::historical_figure::get_vector();
+    for (size_t i = 0; i < hfvec.size(); i++)
     {
-        return string( * ( (string*) d->folder_name_offset ) );
+        df::historical_figure *hfig = hfvec[i];
+
+        if (hfig->id >= 0)
+            break;
+
+        if (hfig->name.has_name && hfig->name.first_name == key)
+            return dataFromHFig(hfig);
     }
-    return string("");
+
+    return PersistentDataItem();
+}
+
+void World::GetPersistentData(std::vector<PersistentDataItem> *vec, const std::string &key)
+{
+    std::vector<df::historical_figure*> &hfvec = df::historical_figure::get_vector();
+    for (size_t i = 0; i < hfvec.size(); i++)
+    {
+        df::historical_figure *hfig = hfvec[i];
+
+        if (hfig->id >= 0)
+            break;
+
+        if (hfig->name.has_name && hfig->name.first_name == key)
+            vec->push_back(dataFromHFig(hfig));
+    }
+}
+
+void World::DeletePersistentData(const PersistentDataItem &item)
+{
+    if (item.id > -100)
+        return;
+
+    std::vector<df::historical_figure*> &hfvec = df::historical_figure::get_vector();
+    int idx = binsearch_index(hfvec, item.id);
+    if (idx >= 0) {
+        delete hfvec[idx];
+        hfvec.erase(hfvec.begin()+idx);
+    }
 }

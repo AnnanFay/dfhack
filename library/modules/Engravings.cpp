@@ -33,77 +33,47 @@ using namespace std;
 #include "VersionInfo.h"
 #include "MemAccess.h"
 #include "Types.h"
-#include "modules/Engravings.h"
-#include "ModuleFactory.h"
 #include "Core.h"
 
+#include "modules/Engravings.h"
+#include "df/world.h"
+
 using namespace DFHack;
+using namespace DFHack::Simple;
+using df::global::world;
 
-struct Engravings::Private
+bool Engravings::isValid()
 {
-    uint32_t engraving_vector;
-    vector <t_engraving *> * p_engr;
-
-    Process * owner;
-    bool Inited;
-    bool Started;
-};
-
-Module* DFHack::createEngravings()
-{
-    return new Engravings();
+    return (world != NULL);
 }
 
-Engravings::Engravings()
+uint32_t Engravings::getCount()
 {
-    Core & c = Core::getInstance();
-    d = new Private;
-    d->owner = c.p;
-    d->Inited = d->Started = false;
-    d->p_engr = (decltype(d->p_engr)) c.vinfo->getGroup("Engravings")->getAddress ("vector");
-    d->Inited = true;
+    return world->engravings.size();
 }
 
-Engravings::~Engravings()
+df::engraving * Engravings::getEngraving(int index)
 {
-    if(d->Started)
-        Finish();
-    delete d;
+    if (index < 0 || index >= getCount())
+        return NULL;
+    return world->engravings[index];
 }
 
-bool Engravings::Start(uint32_t & numengravings)
+bool Engravings::copyEngraving(const int32_t index, t_engraving &out)
 {
-    if(!d->Inited)
+    if (index < 0 || index >= getCount())
         return false;
-    numengravings = d->p_engr->size();
-    d->Started = true;
+
+    out.origin = world->engravings[index];
+
+    out.artist = out.origin->artist;
+    out.masterpiece_event = out.origin->masterpiece_event;
+    out.skill_rating = out.origin->skill_rating;
+    out.pos = out.origin->pos;
+    out.flags = out.origin->flags;
+    out.tile = out.origin->tile;
+    out.art_id = out.origin->art_id;
+    out.art_subid = out.origin->art_subid;
+    out.quality = out.origin->quality;
     return true;
 }
-
-
-bool Engravings::Read (const uint32_t index, dfh_engraving & engraving)
-{
-    if(!d->Started) return false;
-
-    // read pointer from vector at position
-    engraving.s = *d->p_engr->at (index);
-
-    // transform
-    engraving.origin = d->p_engr->at (index);
-    return true;
-}
-
-bool Engravings::Write (const dfh_engraving & engraving)
-{
-    if(!d->Started) return false;
-    //write engraving to memory
-    d->owner->write (engraving.origin, sizeof (t_engraving), (uint8_t *) &(engraving.s));
-    return true;
-}
-
-bool Engravings::Finish()
-{
-    d->Started = false;
-    return true;
-}
-

@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <stack>
 #include <map>
 #include <set>
 #include <cstdlib>
@@ -10,18 +11,38 @@ using std::endl;
 using std::set;
 
 #include "Core.h"
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
-#include <modules/Vegetation.h>
-#include <modules/Maps.h>
-#include <modules/Gui.h>
-#include <TileTypes.h>
-#include <modules/MapCache.h>
+#include "Console.h"
+#include "Export.h"
+#include "PluginManager.h"
+#include "modules/Vegetation.h"
+#include "modules/Maps.h"
+#include "modules/Gui.h"
+#include "TileTypes.h"
+#include "modules/MapCache.h"
 using namespace MapExtras;
 using namespace DFHack;
+using namespace df::enums;
+typedef vector <df::coord> coord_vec;
 
-typedef vector <DFHack::DFCoord> coord_vec;
+CommandHistory liquids_hist;
+
+command_result df_liquids (Core * c, vector <string> & parameters);
+
+DFHACK_PLUGIN("liquids");
+
+DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
+{
+    liquids_hist.load("liquids.history");
+    commands.clear();
+    commands.push_back(PluginCommand("liquids", "Place magma, water or obsidian.", df_liquids, true));
+    return CR_OK;
+}
+
+DFhackCExport command_result plugin_shutdown ( Core * c )
+{
+    liquids_hist.save("liquids.history");
+    return CR_OK;
+}
 
 class Brush
 {
@@ -128,7 +149,7 @@ public:
         bool juststarted = true;
         while (mc.testCoord(start))
         {
-            uint16_t tt = mc.tiletypeAt(start);
+            df::tiletype tt = mc.tiletypeAt(start);
             if(DFHack::LowPassable(tt) || juststarted && DFHack::HighPassable(tt))
             {
                 v.push_back(start);
@@ -141,37 +162,70 @@ public:
     };
 };
 
-CommandHistory liquids_hist;
-
-DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters);
-
-DFhackCExport const char * plugin_name ( void )
+/**
+ * Flood-fill water tiles from cursor (for wclean)
+ * example: remove salt flag from a river
+ */
+class FloodBrush : public Brush
 {
-    return "liquids";
-}
+public:
+    FloodBrush(Core *c){c_ = c;};
+    ~FloodBrush(){};
+    coord_vec points(MapCache & mc, DFHack::DFCoord start)
+    {
+        coord_vec v;
 
-DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
-{
-    liquids_hist.load("liquids.history");
-    commands.clear();
-    commands.push_back(PluginCommand("liquids", "Place magma, water or obsidian.", df_liquids, true));
-    return CR_OK;
-}
+		std::stack<DFCoord> to_flood;
+	    to_flood.push(start);
 
-DFhackCExport command_result plugin_shutdown ( Core * c )
-{
-    liquids_hist.save("liquids.history");
-    return CR_OK;
-}
+		std::set<DFCoord> seen;
 
-DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
+		while (!to_flood.empty()) {
+			DFCoord xy = to_flood.top();
+			to_flood.pop();
+
+                        df::tile_designation des = mc.designationAt(xy);
+
+			if (seen.find(xy) == seen.end() 
+                            && des.bits.flow_size
+                            && des.bits.liquid_type == tile_liquid::Water) {
+				v.push_back(xy);
+				seen.insert(xy);
+
+				maybeFlood(DFCoord(xy.x - 1, xy.y, xy.z), to_flood, mc);
+				maybeFlood(DFCoord(xy.x + 1, xy.y, xy.z), to_flood, mc);
+				maybeFlood(DFCoord(xy.x, xy.y - 1, xy.z), to_flood, mc);
+				maybeFlood(DFCoord(xy.x, xy.y + 1, xy.z), to_flood, mc);
+
+				df::tiletype tt = mc.tiletypeAt(xy);
+				if (LowPassable(tt))
+				{
+					maybeFlood(DFCoord(xy.x, xy.y, xy.z - 1), to_flood, mc);
+				}
+				if (HighPassable(tt))
+				{
+					maybeFlood(DFCoord(xy.x, xy.y, xy.z + 1), to_flood, mc);
+				}
+			}
+		}
+
+		return v;
+	}
+private:
+	void maybeFlood(DFCoord c, std::stack<DFCoord> &to_flood, MapCache &mc) {
+		if (mc.testCoord(c)) {
+			to_flood.push(c);
+		}
+	}
+	Core *c_;
+};
+
+command_result df_liquids (Core * c, vector <string> & parameters)
 {
     int32_t x,y,z;
-    uint32_t x_max,y_max,z_max;
 
-    DFHack::Maps * Maps;
     DFHack::Gui * Position;
-    for(int i = 0; i < parameters.size();i++)
+    for(size_t i = 0; i < parameters.size();i++)
     {
         if(parameters[i] == "help" || parameters[i] == "?")
         {
@@ -181,6 +235,13 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
             return CR_OK;
         }
     }
+
+    if (!Maps::IsValid())
+    {
+        c->con.printerr("Map is not available!\n");
+        return CR_FAILURE;
+    }
+
     Brush * brush = new RectangleBrush(1,1);
     string brushname = "point";
     bool end = false;
@@ -224,6 +285,8 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
                  << "block         - DF map block with cursor in it" << endl
                  << "                (regular spaced 16x16x1 blocks)" << endl
                  << "column        - Column from cursor, up through free space" << endl
+                 << "flood         - Flood-fill water tiles from cursor" << endl
+                 << "                (only makes sense with wclean)" << endl
                  << "Other:" << endl
                  << "q             - quit" << endl
                  << "help or ?     - print this list of commands" << endl
@@ -312,6 +375,12 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
             brushname = "column";
             brush = new ColumnBrush();
         }
+		else if(command == "flood")
+		{
+			delete brush;
+			brushname = "flood";
+			brush = new FloodBrush(c);
+		}
         else if(command == "q")
         {
             end = true;
@@ -359,17 +428,14 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
             amount = 7;
         else if(command.empty())
         {
-            c->Suspend();
-            Maps = c->getMaps();
-            Maps->Start();
-            Maps->getSize(x_max,y_max,z_max);
+            CoreSuspender suspend(c);
             Position = c->getGui();
             do
             {
-                if(!Maps->Start())
+                if (!Maps::IsValid())
                 {
                     c->con << "Can't see any DF map loaded." << endl;
-                    break;
+                    break;;
                 }
                 if(!Position->getCursorCoords(x,y,z))
                 {
@@ -377,7 +443,7 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
                     break;
                 }
                 c->con << "cursor coords: " << x << "/" << y << "/" << z << endl;
-                MapCache mcache(Maps);
+                MapCache mcache;
                 DFHack::DFCoord cursor(x,y,z);
                 coord_vec all_tiles = brush->points(mcache,cursor);
                 c->con << "working..." << endl;
@@ -386,10 +452,10 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
                     coord_vec::iterator iter = all_tiles.begin();
                     while (iter != all_tiles.end())
                     {
-                        mcache.setTiletypeAt(*iter, 331);
+                        mcache.setTiletypeAt(*iter, tiletype::LavaWall);
                         mcache.setTemp1At(*iter,10015);
                         mcache.setTemp2At(*iter,10015);
-                        DFHack::t_designation des = mcache.designationAt(*iter);
+                        df::tile_designation des = mcache.designationAt(*iter);
                         des.bits.flow_size = 0;
                         mcache.setDesignationAt(*iter, des);
                         iter ++;
@@ -400,7 +466,7 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
                     coord_vec::iterator iter = all_tiles.begin();
                     while (iter != all_tiles.end())
                     {
-                        mcache.setTiletypeAt(*iter, 340);
+                        mcache.setTiletypeAt(*iter, findRandomVariant(tiletype::LavaFloor1));
                         iter ++;
                     }
                 }
@@ -409,10 +475,10 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
                     coord_vec::iterator iter = all_tiles.begin();
                     while (iter != all_tiles.end())
                     {
-                        mcache.setTiletypeAt(*iter, 90);
+                        mcache.setTiletypeAt(*iter, tiletype::RiverSource);
 
-                        DFHack::t_designation a = mcache.designationAt(*iter);
-                        a.bits.liquid_type = DFHack::liquid_water;
+                        df::tile_designation a = mcache.designationAt(*iter);
+                        a.bits.liquid_type = tile_liquid::Water;
                         a.bits.liquid_static = false;
                         a.bits.flow_size = 7;
                         mcache.setTemp1At(*iter,10015);
@@ -434,7 +500,7 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
                     while (iter != all_tiles.end())
                     {
                         DFHack::DFCoord current = *iter;
-                        DFHack::t_designation des = mcache.designationAt(current);
+                        df::tile_designation des = mcache.designationAt(current);
                         des.bits.water_salt = false;
                         des.bits.water_stagnant = false;
                         mcache.setDesignationAt(current,des);
@@ -455,9 +521,8 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
                             iter ++;
                             continue;
                         }
-                        DFHack::t_designation des = mcache.designationAt(current);
-                        uint16_t tt = mcache.tiletypeAt(current);
-                        DFHack::naked_designation & flow = des.bits;
+                        df::tile_designation des = mcache.designationAt(current);
+                        df::tiletype tt = mcache.tiletypeAt(current);
                         // don't put liquids into places where they don't belong...
                         if(!DFHack::FlowPassable(tt))
                         {
@@ -468,27 +533,27 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
                         {
                             if(setmode == "s.")
                             {
-                                flow.flow_size = amount;
+                                des.bits.flow_size = amount;
                             }
                             else if(setmode == "s+")
                             {
-                                if(flow.flow_size < amount)
-                                    flow.flow_size = amount;
+                                if(des.bits.flow_size < amount)
+                                    des.bits.flow_size = amount;
                             }
                             else if(setmode == "s-")
                             {
-                                if (flow.flow_size > amount)
-                                    flow.flow_size = amount;
+                                if (des.bits.flow_size > amount)
+                                    des.bits.flow_size = amount;
                             }
                             if(amount != 0 && mode == "magma")
                             {
-                                flow.liquid_type =  DFHack::liquid_magma;
+                                des.bits.liquid_type =  tile_liquid::Magma;
                                 mcache.setTemp1At(current,12000);
                                 mcache.setTemp2At(current,12000);
                             }
                             else if(amount != 0 && mode == "water")
                             {
-                                flow.liquid_type =  DFHack::liquid_water;
+                                des.bits.liquid_type =  tile_liquid::Water;
                                 mcache.setTemp1At(current,10015);
                                 mcache.setTemp2At(current,10015);
                             }
@@ -531,9 +596,7 @@ DFhackCExport command_result df_liquids (Core * c, vector <string> & parameters)
                     c->con << "OK" << endl;
                 else
                     c->con << "Something failed horribly! RUN!" << endl;
-                Maps->Finish();
             } while (0);
-            c->Resume();
         }
         else
         {

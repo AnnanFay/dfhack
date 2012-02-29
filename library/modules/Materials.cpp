@@ -44,19 +44,31 @@ using namespace std;
 #include "df/world.h"
 #include "df/ui.h"
 #include "df/item.h"
-#include "df/inorganic_raw.h"
-#include "df/plant_raw.h"
-#include "df/plant_raw_flags.h"
 #include "df/creature_raw.h"
+#include "df/caste_raw.h"
+#include "df/body_part_raw.h"
 #include "df/historical_figure.h"
 
 #include "df/job_item.h"
 #include "df/job_material_category.h"
+#include "df/dfhack_material_category.h"
 #include "df/matter_state.h"
 #include "df/material_vec_ref.h"
+#include "df/builtin_mats.h"
+
+#include "df/descriptor_color.h"
+#include "df/descriptor_pattern.h"
+#include "df/descriptor_shape.h"
+
+#include "df/physical_attribute_type.h"
+#include "df/mental_attribute_type.h"
+#include <df/color_modifier_raw.h>
 
 using namespace DFHack;
 using namespace df::enums;
+
+using df::global::world;
+using df::global::ui;
 
 bool MaterialInfo::decode(df::item *item)
 {
@@ -84,9 +96,14 @@ bool MaterialInfo::decode(int16_t type, int32_t index)
     inorganic = NULL; plant = NULL; creature = NULL;
     figure = NULL;
 
-    df::world_raws &raws = df::global::world->raws;
+    if (type < 0) {
+        mode = None;
+        return false;
+    }
 
-    if (type < 0 || type >= sizeof(raws.mat_table.builtin)/sizeof(void*))
+    df::world_raws &raws = world->raws;
+
+    if (type >= sizeof(raws.mat_table.builtin)/sizeof(void*))
         return false;
 
     if (index < 0)
@@ -143,28 +160,49 @@ bool MaterialInfo::decode(int16_t type, int32_t index)
     return (material != NULL);
 }
 
-bool MaterialInfo::find(const std::string &token, const std::string &subtoken)
+bool MaterialInfo::find(const std::string &token)
 {
-    if (findBuiltin(token))
-        return true;
-    if (subtoken.empty())
+    std::vector<std::string> items;
+    split_string(&items, token, ":");
+
+    if (items[0] == "INORGANIC" && items.size() > 1)
+        return findInorganic(vector_get(items,1));
+    if (items[0] == "CREATURE_MAT" || items[0] == "CREATURE")
+        return findCreature(vector_get(items,1), vector_get(items,2));
+    if (items[0] == "PLANT_MAT" || items[0] == "PLANT")
+        return findPlant(vector_get(items,1), vector_get(items,2));
+
+    if (items.size() == 1)
     {
-        if (findInorganic(token))
+        if (findBuiltin(items[0]))
+            return true;
+        if (findInorganic(items[0]))
+            return true;
+        if (findPlant(items[0], ""))
             return true;
     }
-    else
+    else if (items.size() == 2)
     {
-        if (findPlant(token, subtoken))
+        if (findPlant(items[0], items[1]))
             return true;
-        if (findCreature(token, subtoken))
+        if (findCreature(items[0], items[1]))
             return true;
     }
+
     return false;
 }
 
 bool MaterialInfo::findBuiltin(const std::string &token)
 {
-    df::world_raws &raws = df::global::world->raws;
+    if (token.empty())
+        return decode(-1);
+
+    if (token == "NONE") {
+        decode(-1);
+        return true;
+    }
+
+    df::world_raws &raws = world->raws;
     for (int i = 1; i < NUM_BUILTIN; i++)
         if (raws.mat_table.builtin[i]->id == token)
             return decode(i, -1);
@@ -173,8 +211,16 @@ bool MaterialInfo::findBuiltin(const std::string &token)
 
 bool MaterialInfo::findInorganic(const std::string &token)
 {
-    df::world_raws &raws = df::global::world->raws;
-    for (unsigned i = 0; i < raws.inorganics.size(); i++)
+    if (token.empty())
+        return decode(-1);
+
+    if (token == "NONE") {
+        decode(0, -1);
+        return true;
+    }
+
+    df::world_raws &raws = world->raws;
+    for (size_t i = 0; i < raws.inorganics.size(); i++)
     {
         df::inorganic_raw *p = raws.inorganics[i];
         if (p->id == token)
@@ -185,14 +231,20 @@ bool MaterialInfo::findInorganic(const std::string &token)
 
 bool MaterialInfo::findPlant(const std::string &token, const std::string &subtoken)
 {
-    df::world_raws &raws = df::global::world->raws;
-    for (unsigned i = 0; i < raws.plants.all.size(); i++)
+    if (token.empty())
+        return decode(-1);
+    df::world_raws &raws = world->raws;
+    for (size_t i = 0; i < raws.plants.all.size(); i++)
     {
         df::plant_raw *p = raws.plants.all[i];
         if (p->id != token)
             continue;
 
-        for (unsigned j = 0; j < p->material.size(); j++)
+        // As a special exception, return the structural material with empty subtoken
+        if (subtoken.empty())
+            return decode(p->material_defs.type_basic_mat, p->material_defs.idx_basic_mat);
+
+        for (size_t j = 0; j < p->material.size(); j++)
             if (p->material[j]->id == subtoken)
                 return decode(PLANT_BASE+j, i);
 
@@ -203,14 +255,16 @@ bool MaterialInfo::findPlant(const std::string &token, const std::string &subtok
 
 bool MaterialInfo::findCreature(const std::string &token, const std::string &subtoken)
 {
-    df::world_raws &raws = df::global::world->raws;
-    for (unsigned i = 0; i < raws.creatures.all.size(); i++)
+    if (token.empty() || subtoken.empty())
+        return decode(-1);
+    df::world_raws &raws = world->raws;
+    for (size_t i = 0; i < raws.creatures.all.size(); i++)
     {
         df::creature_raw *p = raws.creatures.all[i];
         if (p->creature_id != token)
             continue;
 
-        for (unsigned j = 0; j < p->material.size(); j++)
+        for (size_t j = 0; j < p->material.size(); j++)
             if (p->material[j]->id == subtoken)
                 return decode(CREATURE_BASE+j, i);
 
@@ -219,12 +273,35 @@ bool MaterialInfo::findCreature(const std::string &token, const std::string &sub
     return decode(-1);
 }
 
+std::string MaterialInfo::getToken()
+{
+    if (isNone())
+        return "NONE";
+
+    if (!material)
+        return stl_sprintf("INVALID:%d:%d", type, index);
+
+    switch (mode) {
+    case Builtin:
+        return material->id;
+    case Inorganic:
+        return "INORGANIC:" + inorganic->id;
+    case Creature:
+        return "CREATURE:" + creature->creature_id + ":" + material->id;
+    case Plant:
+        return "PLANT:" + plant->id + ":" + material->id;
+    default:
+        return stl_sprintf("INVALID_MODE:%d:%d", type, index);
+    }
+}
+
 std::string MaterialInfo::toString(uint16_t temp, bool named)
 {
-    if (type == -1)
-        return "NONE";
+    if (isNone())
+        return "any";
+
     if (!material)
-        return stl_sprintf("INVALID %d:%d", type, index);
+        return stl_sprintf("INVALID:%d:%d", type, index);
 
     df::matter_state state = matter_state::Solid;
     if (temp >= material->heat.melting_point)
@@ -277,8 +354,9 @@ bool MaterialInfo::matches(const df::job_material_category &cat)
     if (!material)
         return false;
 
-    using namespace df::enums::material_flags;
 #define TEST(bit,flag) if (cat.bits.bit && material->flags.is_set(flag)) return true;
+
+    using namespace df::enums::material_flags;
     TEST(plant, STRUCTURAL_PLANT_MAT);
     TEST(wood, WOOD);
     TEST(cloth, THREAD_PLANT);
@@ -292,9 +370,34 @@ bool MaterialInfo::matches(const df::job_material_category &cat)
     TEST(horn, HORN);
     TEST(pearl, PEARL);
     TEST(yarn, YARN);
-#undef TEST
     return false;
 }
+
+bool MaterialInfo::matches(const df::dfhack_material_category &cat)
+{
+    if (!material)
+        return false;
+
+    df::job_material_category mc;
+    mc.whole = cat.whole;
+    if (matches(mc))
+        return true;
+
+    using namespace df::enums::material_flags;
+    using namespace df::enums::inorganic_flags;
+    TEST(metal, IS_METAL);
+    TEST(stone, IS_STONE);
+    if (cat.bits.stone && type == 0 && index == -1)
+        return true;
+    if (cat.bits.sand && inorganic && inorganic->flags.is_set(SOIL_SAND))
+        return true;
+    TEST(glass, IS_GLASS);
+    if (cat.bits.clay && linear_index(material->reaction_product.id, std::string("FIRED_MAT")) >= 0)
+        return true;
+    return false;
+}
+
+#undef TEST
 
 bool MaterialInfo::matches(const df::job_item &item)
 {
@@ -309,9 +412,9 @@ bool MaterialInfo::matches(const df::job_item &item)
     df::job_item_flags3 ok3, mask3;
     getMatchBits(ok3, mask3);
 
-    return ((item.flags1.whole & mask1.whole) == (item.flags1.whole & ok1.whole)) &&
-           ((item.flags2.whole & mask2.whole) == (item.flags2.whole & ok2.whole)) &&
-           ((item.flags3.whole & mask3.whole) == (item.flags3.whole & ok3.whole));
+    return bits_match(item.flags1.whole, ok1.whole, mask1.whole) &&
+           bits_match(item.flags2.whole, ok2.whole, mask2.whole) &&
+           bits_match(item.flags3.whole, ok3.whole, mask3.whole);
 }
 
 void MaterialInfo::getMatchBits(df::job_item_flags1 &ok, df::job_item_flags1 &mask)
@@ -319,7 +422,7 @@ void MaterialInfo::getMatchBits(df::job_item_flags1 &ok, df::job_item_flags1 &ma
     ok.whole = mask.whole = 0;
     if (!isValid()) return;
 
-#define MAT_FLAG(name) material->flags.is_set(df::enums::material_flags::name)
+#define MAT_FLAG(name) material->flags.is_set(material_flags::name)
 #define FLAG(field, name) (field && field->flags.is_set(name))
 #define TEST(bit, check) \
     mask.bits.bit = true; ok.bits.bit = !!(check);
@@ -330,7 +433,7 @@ void MaterialInfo::getMatchBits(df::job_item_flags1 &ok, df::job_item_flags1 &ma
     TEST(sharpenable, MAT_FLAG(IS_STONE));
     TEST(distillable, structural && FLAG(plant, plant_raw_flags::DRINK));
     TEST(processable, structural && FLAG(plant, plant_raw_flags::THREAD));
-    TEST(bag, isAnyCloth());
+    TEST(bag, isAnyCloth() || MAT_FLAG(LEATHER));
     TEST(cookable, MAT_FLAG(EDIBLE_COOKED));
     TEST(extract_bearing_plant, structural && FLAG(plant, plant_raw_flags::EXTRACT_STILL_VIAL));
     TEST(extract_bearing_fish, false);
@@ -344,7 +447,7 @@ void MaterialInfo::getMatchBits(df::job_item_flags1 &ok, df::job_item_flags1 &ma
                   MAT_FLAG(LIQUID_MISC_CREATURE) ||
                   MAT_FLAG(LIQUID_MISC_OTHER)));
     TEST(tameable_vermin, false);
-    TEST(sharpenable, MAT_FLAG(IS_GLASS));
+    TEST(sharpenable, MAT_FLAG(IS_STONE));
     TEST(milk, linear_index(material->reaction_product.id, std::string("CHEESE_MAT")) >= 0);
     //04000000 - "milkable" - vtable[107],1,1
 }
@@ -364,8 +467,8 @@ void MaterialInfo::getMatchBits(df::job_item_flags2 &ok, df::job_item_flags2 &ma
 
     TEST(fire_safe, material->heat.melting_point > 11000);
     TEST(magma_safe, material->heat.melting_point > 12000);
-    TEST(deep_material, FLAG(inorganic, df::enums::inorganic_flags::DEEP_ANY));
-    TEST(non_economic, inorganic && !(df::global::ui && df::global::ui->economic_stone[index]));
+    TEST(deep_material, FLAG(inorganic, inorganic_flags::DEEP_ANY));
+    TEST(non_economic, inorganic && !(ui && ui->economic_stone[index]));
 
     TEST(plant, plant);
     TEST(silk, MAT_FLAG(SILK));
@@ -393,42 +496,56 @@ void MaterialInfo::getMatchBits(df::job_item_flags3 &ok, df::job_item_flags3 &ma
 #undef FLAG
 #undef TEST
 
+bool DFHack::parseJobMaterialCategory(df::job_material_category *cat, const std::string &token)
+{
+    cat->whole = 0;
+
+    std::vector<std::string> items;
+    split_string(&items, toLower(token), ",", true);
+
+    for (size_t i = 0; i < items.size(); i++)
+    {
+        int id = findBitfieldField(*cat, items[i]);
+        if (id < 0)
+            return false;
+
+        cat->whole |= (1 << id);
+    }
+
+    return true;
+}
+
+bool DFHack::parseJobMaterialCategory(df::dfhack_material_category *cat, const std::string &token)
+{
+    cat->whole = 0;
+
+    std::vector<std::string> items;
+    split_string(&items, toLower(token), ",", true);
+
+    for (size_t i = 0; i < items.size(); i++)
+    {
+        int id = findBitfieldField(*cat, items[i]);
+        if (id < 0)
+            return false;
+
+        cat->whole |= (1 << id);
+    }
+
+    return true;
+}
+
 Module* DFHack::createMaterials()
 {
     return new Materials();
 }
 
-class Materials::Private
-{
-    public:
-    Process * owner;
-    OffsetGroup * OG_Materials;
-    void * vector_races;
-    void * vector_other;
-};
 
 Materials::Materials()
 {
-    Core & c = Core::getInstance();
-    d = new Private;
-    d->owner = c.p;
-    df_organic = 0;
-    df_trees = 0;
-    df_plants = 0;
-    df_inorganic = 0;
-    OffsetGroup *OG_Materials = d->OG_Materials = c.vinfo->getGroup("Materials");
-    {
-        OG_Materials->getSafeAddress("inorganics",(void * &)df_inorganic);
-        OG_Materials->getSafeAddress("organics_all",(void * &)df_organic);
-        OG_Materials->getSafeAddress("organics_plants",(void * &)df_plants);
-        OG_Materials->getSafeAddress("organics_trees",(void * &)df_trees);
-        d->vector_races = OG_Materials->getAddress("creature_type_vector");
-    }
 }
 
 Materials::~Materials()
 {
-    delete d;
 }
 
 bool Materials::Finish()
@@ -461,47 +578,28 @@ bool t_matglossInorganic::isGem()
     return is_gem;
 }
 
-// good for now
-inline bool ReadNamesOnly(Process* p, void * address, vector<t_matgloss> & names)
-{
-    vector <string *> * p_names = (vector <string *> *) address;
-    uint32_t size = p_names->size();
-    names.clear();
-    names.reserve (size);
-    for (uint32_t i = 0; i < size;i++)
-    {
-        t_matgloss mat;
-        mat.id = *p_names->at(i);
-        names.push_back(mat);
-    }
-    return true;
-}
-
 bool Materials::CopyInorganicMaterials (std::vector<t_matglossInorganic> & inorganic)
 {
-    Process * p = d->owner;
-    if(!df_inorganic)
-        return false;
-    uint32_t size = df_inorganic->size();
+    size_t size = world->raws.inorganics.size();
     inorganic.clear();
     inorganic.reserve (size);
-    for (uint32_t i = 0; i < size;i++)
+    for (size_t i = 0; i < size;i++)
     {
-        df_inorganic_type * orig = df_inorganic->at(i);
+        df::inorganic_raw *orig = world->raws.inorganics[i];
         t_matglossInorganic mat;
-        mat.id = orig->ID;
-        mat.name = orig->mat.STONE_NAME;
+        mat.id = orig->id;
+        mat.name = orig->material.stone_name;
 
-        mat.ore_types = orig->METAL_ORE_matID;
-        mat.ore_chances = orig->METAL_ORE_prob;
-        mat.strand_types = orig->THREAD_METAL_matID;
-        mat.strand_chances = orig->THREAD_METAL_prob;
-        mat.value = orig->mat.MATERIAL_VALUE;
-        mat.wall_tile = orig->mat.TILE;
-        mat.boulder_tile = orig->mat.ITEM_SYMBOL;
-        mat.bright = orig->mat.BASIC_COLOR_bright;
-        mat.fore = orig->mat.BASIC_COLOR_foreground;
-        mat.is_gem = orig->mat.mat_flags.is_set(MATERIAL_IS_GEM);
+        mat.ore_types = orig->metal_ore.mat_index;
+        mat.ore_chances = orig->metal_ore.probability;
+        mat.strand_types = orig->thread_metal.mat_index;
+        mat.strand_chances = orig->thread_metal.probability;
+        mat.value = orig->material.material_value;
+        mat.wall_tile = orig->material.tile;
+        mat.boulder_tile = orig->material.item_symbol;
+        mat.fore = orig->material.basic_color[0];
+        mat.bright = orig->material.basic_color[1];
+        mat.is_gem = orig->material.flags.is_set(material_flags::IS_GEM);
         inorganic.push_back(mat);
     }
     return true;
@@ -509,191 +607,190 @@ bool Materials::CopyInorganicMaterials (std::vector<t_matglossInorganic> & inorg
 
 bool Materials::CopyOrganicMaterials (std::vector<t_matgloss> & organic)
 {
-    if(df_organic)
-        return ReadNamesOnly(d->owner, (void *) df_organic, organic );
-    else return false;
+    size_t size = world->raws.plants.all.size();
+    organic.clear();
+    organic.reserve (size);
+    for (size_t i = 0; i < size;i++)
+    {
+        t_matgloss mat;
+        mat.id = world->raws.plants.all[i]->id;
+        organic.push_back(mat);
+    }
+    return true;
 }
 
 bool Materials::CopyWoodMaterials (std::vector<t_matgloss> & tree)
 {
-    if(df_trees)
-        return ReadNamesOnly(d->owner, (void *) df_trees, tree );
-    else return false;
+    size_t size = world->raws.plants.trees.size();
+    tree.clear();
+    tree.reserve (size);
+    for (size_t i = 0; i < size;i++)
+    {
+        t_matgloss mat;
+        mat.id = world->raws.plants.trees[i]->id;
+        tree.push_back(mat);
+    }
+    return true;
 }
 
 bool Materials::CopyPlantMaterials (std::vector<t_matgloss> & plant)
 {
-    if(df_plants)
-        return ReadNamesOnly(d->owner, (void *) df_plants, plant );
-    else return false;
+    size_t size = world->raws.plants.bushes.size();
+    plant.clear();
+    plant.reserve (size);
+    for (size_t i = 0; i < size;i++)
+    {
+        t_matgloss mat;
+        mat.id = world->raws.plants.bushes[i]->id;
+        plant.push_back(mat);
+    }
+    return true;
 }
 
 bool Materials::ReadCreatureTypes (void)
 {
-    return ReadNamesOnly(d->owner, d->vector_races, race );
+    size_t size = world->raws.creatures.all.size();
+    race.clear();
+    race.reserve (size);
+    for (size_t i = 0; i < size;i++)
+    {
+        t_matgloss mat;
+        mat.id = world->raws.creatures.all[i]->creature_id;
+        race.push_back(mat);
+    }
+    return true;
 }
 
 bool Materials::ReadOthers(void)
 {
-    Process * p = d->owner;
-    char * matBase = d->OG_Materials->getAddress ("other");
-    uint32_t i = 0;
-    std::string * ptr;
-
     other.clear();
-
-    while(1)
+    FOR_ENUM_ITEMS(builtin_mats, i)
     {
         t_matglossOther mat;
-        ptr = (std::string *) p->readPtr(matBase + i*4);
-        if(ptr==0)
-            break;
-        mat.id = *ptr;
+        mat.id = world->raws.mat_table.builtin[i]->id;
         other.push_back(mat);
-        i++;
     }
     return true;
 }
 
 bool Materials::ReadDescriptorColors (void)
 {
-    Process * p = d->owner;
-    OffsetGroup * OG_Descriptors = p->getDescriptor()->getGroup("Materials")->getGroup("descriptors");
-    vector <char *> & p_colors = *(vector<char*> *) OG_Descriptors->getAddress ("colors_vector");
-    uint32_t size = p_colors.size();
+    size_t size = world->raws.language.colors.size();
 
     color.clear();
     if(size == 0)
         return false;
     color.reserve(size);
-    for (uint32_t i = 0; i < size;i++)
+    for (size_t i = 0; i < size;i++)
     {
+        df::descriptor_color *c = world->raws.language.colors[i];
         t_descriptor_color col;
-        col.id = p->readSTLString (p_colors[i] + OG_Descriptors->getOffset ("rawname") );
-        col.name = p->readSTLString (p_colors[i] + OG_Descriptors->getOffset ("name") );
-        col.red = p->readFloat( p_colors[i] + OG_Descriptors->getOffset ("color_r") );
-        col.green = p->readFloat( p_colors[i] + OG_Descriptors->getOffset ("color_v") );
-        col.blue = p->readFloat( p_colors[i] + OG_Descriptors->getOffset ("color_b") );
+        col.id = c->id;
+        col.name = c->name;
+        col.red = c->red;
+        col.green = c->green;
+        col.blue = c->blue;
         color.push_back(col);
     }
-    return ReadNamesOnly(d->owner, OG_Descriptors->getAddress ("all_colors_vector"), alldesc );
+
+    size = world->raws.language.patterns.size();
+    alldesc.clear();
+    alldesc.reserve(size);
+    for (size_t i = 0; i < size;i++)
+    {
+        t_matgloss mat;
+        mat.id = world->raws.language.patterns[i]->id;
+        alldesc.push_back(mat);
+    }
     return true;
 }
 
 bool Materials::ReadCreatureTypesEx (void)
 {
-    Process *p = d->owner;
-    VersionInfo *mem = p->getDescriptor();
-    OffsetGroup * OG_string = mem->getGroup("string");
-    uint32_t sizeof_string = OG_string->getHexValue ("sizeof");
-
-    OffsetGroup * OG_Mats = mem->getGroup("Materials");
-    vector <char *> & p_races = *(vector<char*> *) OG_Mats->getAddress ("creature_type_vector");
-
-    OffsetGroup * OG_Creature = OG_Mats->getGroup("creature");
-        uint32_t castes_vector_offset = OG_Creature->getOffset ("caste_vector");
-        uint32_t extract_vector_offset = OG_Creature->getOffset ("extract_vector");
-        uint32_t tile_offset = OG_Creature->getOffset ("tile");
-        uint32_t tile_color_offset = OG_Creature->getOffset ("tile_color");
-
-    bool have_advanced = false;
-    uint32_t caste_colormod_offset;
-    uint32_t caste_attributes_offset;
-    uint32_t caste_bodypart_offset;
-    uint32_t bodypart_id_offset;
-    uint32_t bodypart_category_offset;
-    uint32_t color_modifier_part_offset;
-    uint32_t color_modifier_startdate_offset;
-    uint32_t color_modifier_enddate_offset;
-    try
-    {
-        OffsetGroup * OG_Caste = OG_Creature->getGroup("caste");
-            caste_colormod_offset = OG_Caste->getOffset ("color_modifiers");
-            caste_attributes_offset = OG_Caste->getOffset ("attributes");
-            caste_bodypart_offset = OG_Caste->getOffset ("bodypart_vector");
-        OffsetGroup * OG_CasteBodyparts = OG_Creature->getGroup("caste_bodyparts");
-            bodypart_id_offset = OG_CasteBodyparts->getOffset ("id");
-            bodypart_category_offset = OG_CasteBodyparts->getOffset ("category");
-        OffsetGroup * OG_CasteColorMods = OG_Creature->getGroup("caste_color_mods");
-            color_modifier_part_offset = OG_CasteColorMods->getOffset ("part");
-            color_modifier_startdate_offset = OG_CasteColorMods->getOffset ("startdate");
-            color_modifier_enddate_offset = OG_CasteColorMods->getOffset ("enddate");
-        have_advanced = true;
-    }
-    catch (Error::All &){};
-
-    uint32_t size = p_races.size();
-    uint32_t sizecas = 0;
-    uint32_t sizecolormod;
-    uint32_t sizecolorlist;
-    uint32_t sizebp;
+    size_t size = world->raws.creatures.all.size();
     raceEx.clear();
     raceEx.reserve (size);
-    for (uint32_t i = 0; i < size;i++)
+    for (size_t i = 0; i < size; i++)
     {
+        df::creature_raw *cr = world->raws.creatures.all[i];
         t_creaturetype mat;
-        mat.id = p->readSTLString (p_races[i]);
-        mat.tile_character = p->readByte( p_races[i] + tile_offset );
-        mat.tilecolor.fore = p->readWord( p_races[i] + tile_color_offset );
-        mat.tilecolor.back = p->readWord( p_races[i] + tile_color_offset + 2 );
-        mat.tilecolor.bright = p->readWord( p_races[i] + tile_color_offset + 4 );
+        mat.id = cr->creature_id;
+        mat.tile_character = cr->creature_tile;
+        mat.tilecolor.fore = cr->color[0];
+        mat.tilecolor.back = cr->color[1];
+        mat.tilecolor.bright = cr->color[2];
 
-        vector <char *> & p_castes = *(vector<char*> *) (p_races[i] + castes_vector_offset);
-        sizecas = p_castes.size();
-        for (uint32_t j = 0; j < sizecas;j++)
+        size_t sizecas = cr->caste.size();
+        for (size_t j = 0; j < sizecas;j++)
         {
+            df::caste_raw *ca = cr->caste[j];
             /* caste name */
             t_creaturecaste caste;
-            char * caste_start = p_castes[j];
-            caste.id = p->readSTLString (caste_start);
-            caste.singular = p->readSTLString (caste_start + sizeof_string);
-            caste.plural = p->readSTLString (caste_start + 2 * sizeof_string);
-            caste.adjective = p->readSTLString (caste_start + 3 * sizeof_string);
-            //cout << "Caste " << caste.rawname << " " << caste.singular << ": 0x" << hex << caste_start << endl;
-            if(have_advanced)
+            caste.id = ca->caste_id;
+            caste.singular = ca->caste_name[0];
+            caste.plural = ca->caste_name[1];
+            caste.adjective = ca->caste_name[2];
+
+            // color mod reading
+            // Caste + offset > color mod vector
+            auto & colorings = ca->color_modifiers;
+            size_t sizecolormod = colorings.size();
+            caste.ColorModifier.resize(sizecolormod);
+            for(size_t k = 0; k < sizecolormod;k++)
             {
-                /* color mod reading */
-                // Caste + offset > color mod vector
-                vector <char *> & p_colormod = *(vector<char*> *) (caste_start + caste_colormod_offset);
-                sizecolormod = p_colormod.size();
-                caste.ColorModifier.resize(sizecolormod);
-                for(uint32_t k = 0; k < sizecolormod;k++)
-                {
-                    // color mod [0] -> color list
-                    vector <uint32_t> & p_colorlist = *(vector<uint32_t> *) (p_colormod[k]);
-                    sizecolorlist = p_colorlist.size();
-                    caste.ColorModifier[k].colorlist.resize(sizecolorlist);
-                    for(uint32_t l = 0; l < sizecolorlist; l++)
-                        caste.ColorModifier[k].colorlist[l] = p_colorlist[l];
-                    // color mod [color_modifier_part_offset] = string part
-                    caste.ColorModifier[k].part = p->readSTLString( p_colormod[k] + color_modifier_part_offset);
-                    caste.ColorModifier[k].startdate = p->readDWord( p_colormod[k] + color_modifier_startdate_offset );
-                    caste.ColorModifier[k].enddate = p->readDWord( p_colormod[k] + color_modifier_enddate_offset );
-                }
-                /* body parts */
-                vector <char *> & p_bodypart = *(vector<char*> *) (caste_start + caste_bodypart_offset);
-                caste.bodypart.empty();
-                sizebp = p_bodypart.size();
-                for(uint32_t k = 0; k < sizebp; k++)
-                {
-                    t_bodypart part;
-                    part.id = p->readSTLString (p_bodypart[k] + bodypart_id_offset);
-                    part.category = p->readSTLString (p_bodypart[k] + bodypart_category_offset);
-                    caste.bodypart.push_back(part);
-                }
-                p->read(caste_start + caste_attributes_offset, sizeof(t_attrib) * NUM_CREAT_ATTRIBS, (uint8_t *)&caste.strength);
+                // color mod [0] -> color list
+                auto & indexes = colorings[k]->color_indexes;
+                size_t sizecolorlist = indexes.size();
+                caste.ColorModifier[k].colorlist.resize(sizecolorlist);
+                for(size_t l = 0; l < sizecolorlist; l++)
+                    caste.ColorModifier[k].colorlist[l] = indexes[l];
+                // color mod [color_modifier_part_offset] = string part
+                caste.ColorModifier[k].part = colorings[k]->part;
+                caste.ColorModifier[k].startdate = colorings[k]->start_date;
+                caste.ColorModifier[k].enddate = colorings[k]->end_date;
             }
-            else
+
+            // body parts
+            caste.bodypart.empty();
+            size_t sizebp = ca->body_info.body_parts.size();
+            for (size_t k = 0; k < sizebp; k++)
             {
-                memset(&caste.strength, 0,  sizeof(t_attrib) * NUM_CREAT_ATTRIBS);
+                df::body_part_raw *bp = ca->body_info.body_parts[k];
+                t_bodypart part;
+                part.id = bp->part_code;
+                part.category = bp->part_name;
+                caste.bodypart.push_back(part);
+            }
+
+            for (int32_t k = 0; k < 7; k++)
+            {
+                caste.strength[k] = ca->attributes.phys_att_range[physical_attribute_type::STRENGTH][k];
+                caste.agility[k] = ca->attributes.phys_att_range[physical_attribute_type::AGILITY][k];
+                caste.toughness[k] = ca->attributes.phys_att_range[physical_attribute_type::TOUGHNESS][k];
+                caste.endurance[k] = ca->attributes.phys_att_range[physical_attribute_type::ENDURANCE][k];
+                caste.recuperation[k] = ca->attributes.phys_att_range[physical_attribute_type::RECUPERATION][k];
+                caste.disease_resistance[k] = ca->attributes.phys_att_range[physical_attribute_type::DISEASE_RESISTANCE][k];
+
+                caste.analytical_ability[k] = ca->attributes.phys_att_range[mental_attribute_type::ANALYTICAL_ABILITY][k];
+                caste.focus[k] = ca->attributes.phys_att_range[mental_attribute_type::FOCUS][k];
+                caste.willpower[k] = ca->attributes.phys_att_range[mental_attribute_type::WILLPOWER][k];
+                caste.creativity[k] = ca->attributes.phys_att_range[mental_attribute_type::CREATIVITY][k];
+                caste.intuition[k] = ca->attributes.phys_att_range[mental_attribute_type::INTUITION][k];
+                caste.patience[k] = ca->attributes.phys_att_range[mental_attribute_type::PATIENCE][k];
+                caste.memory[k] = ca->attributes.phys_att_range[mental_attribute_type::MEMORY][k];
+                caste.linguistic_ability[k] = ca->attributes.phys_att_range[mental_attribute_type::LINGUISTIC_ABILITY][k];
+                caste.spatial_sense[k] = ca->attributes.phys_att_range[mental_attribute_type::SPATIAL_SENSE][k];
+                caste.musicality[k] = ca->attributes.phys_att_range[mental_attribute_type::MUSICALITY][k];
+                caste.kinesthetic_sense[k] = ca->attributes.phys_att_range[mental_attribute_type::KINESTHETIC_SENSE][k];
+                caste.empathy[k] = ca->attributes.phys_att_range[mental_attribute_type::EMPATHY][k];
+                caste.social_awareness[k] = ca->attributes.phys_att_range[mental_attribute_type::SOCIAL_AWARENESS][k];
             }
             mat.castes.push_back(caste);
         }
-        vector <void *> & p_extract = *(vector<void*> *) (p_races[i] + extract_vector_offset);
-        for(uint32_t j = 0; j < p_extract.size(); j++)
+        for (size_t j = 0; j < world->raws.creatures.all[i]->material.size(); j++)
         {
             t_creatureextract extract;
-            extract.id = p->readSTLString( p_extract[j] );
+            extract.id = world->raws.creatures.all[i]->material[j]->id;
             mat.extract.push_back(extract);
         }
         raceEx.push_back(mat);
@@ -711,119 +808,33 @@ bool Materials::ReadAllMaterials(void)
     return ok;
 }
 
-/// miserable pile of magic. The material system is insane.
-// FIXME: this contains potential errors when the indexes are -1 and compared to unsigned numbers!
 std::string Materials::getDescription(const t_material & mat)
 {
-    std::string out;
-    int32_t typeC;
-    if ( (mat.material<419) || (mat.material>618) )
-    {
-        if ( (mat.material<19) || (mat.material>218) )
-        {
-            if (mat.material)
-                if (mat.material>0x292)
-                    return "?";
-                else
-                {
-                    if (mat.material>=this->other.size())
-                    {
-                        if (mat.itemType == 0) {
-                            if(mat.material<0)
-                                return "any inorganic";
-                            else
-                                return this->df_inorganic->at(mat.material)->ID;
-                        }
-                        if(mat.material<0)
-                            return "any";
-                        if(mat.material>=this->raceEx.size())
-                            return "stuff";
-                        return this->raceEx[mat.material].id;
-                    }
-                    else
-                    {
-                        if (mat.index==-1)
-                            return std::string(this->other[mat.material].id);
-                        else
-                            return std::string(this->other[mat.material].id) + " derivate";
-                    }
-                }
-            else
-                if(mat.index<0)
-                    return "any inorganic";
-                else if (mat.index < df_inorganic->size())
-                    return this->df_inorganic->at(mat.index)->ID;
-                else
-                    return "INDEX OUT OF BOUNDS!";
-        }
-        else
-        {
-            if (mat.index>=this->raceEx.size())
-                return "unknown race";
-            typeC = mat.material;
-            typeC -=19;
-            if ((typeC<0) || (typeC>=this->raceEx[mat.index].extract.size()))
-            {
-                return string(this->raceEx[mat.index].id).append(" extract");
-            }
-            return std::string(this->raceEx[mat.index].id).append(" ").append(this->raceEx[mat.index].extract[typeC].id);
-        }
-    }
+    MaterialInfo mi(mat.material, mat.index);
+    if (mi.creature)
+        return mi.creature->creature_id + " " + mi.material->id;
+    else if (mi.plant)
+        return mi.plant->id + " " + mi.material->id;
     else
-    {
-        return this->df_organic->at(mat.material)->ID;
-    }
-    return out;
+        return mi.material->id;
 }
 
-//type of material only so we know which vector to retrieve
-// FIXME: this also contains potential errors when the indexes are -1 and compared to unsigned numbers!
+// type of material only so we know which vector to retrieve
+// This is completely worthless now
 std::string Materials::getType(const t_material & mat)
 {
-    if((mat.material<419) || (mat.material>618))
+    MaterialInfo mi(mat.material, mat.index);
+    switch (mi.mode)
     {
-        if((mat.material<19) || (mat.material>218))
-        {
-            if(mat.material)
-            {
-                if(mat.material>0x292)
-                {
-                    return "unknown";
-                }
-                else
-                {
-                    if(mat.material>=this->other.size())
-                    {
-                        if(mat.material<0)
-                            return "any";
-
-                        if(mat.material>=this->raceEx.size())
-                            return "unknown";
-
-                        return "racex";
-                    }
-                    else
-                    {
-                        if (mat.index==-1)
-                            return "other";
-                        else
-                            return "other derivate";
-                    }
-                }
-            }
-            else
-                return "inorganic";
-        }
-        else
-        {
-            if (mat.index>=this->raceEx.size())
-                return "unknown";
-
-            return "racex extract";
-        }
-    }
-    else
-    {
-        return "organic";
+    case MaterialInfo::Builtin:
+        return "builtin";
+    case MaterialInfo::Inorganic:
+        return "inorganic";
+    case MaterialInfo::Creature:
+        return "creature";
+    case MaterialInfo::Plant:
+        return "plant";
+    default:
+        return "unknown";
     }
 }

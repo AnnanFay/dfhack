@@ -2,27 +2,30 @@
 using namespace std;
 
 #include "Core.h"
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
+#include "Console.h"
+#include "Export.h"
+#include "PluginManager.h"
 #include <vector>
 #include <string>
-#include <modules/World.h>
+#include "modules/World.h"
 #include <stdlib.h>
 using namespace DFHack;
 
 
-DFhackCExport command_result mode (Core * c, vector <string> & parameters);
+command_result mode (Core * c, vector <string> & parameters);
 
-DFhackCExport const char * plugin_name ( void )
-{
-    return "mode";
-}
+DFHACK_PLUGIN("mode");
 
 DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
 {
     commands.clear();
-    commands.push_back(PluginCommand("mode","View, change and track game mode.", mode, true));
+    commands.push_back(PluginCommand(
+        "mode","View, change and track game mode.",
+        mode, true,
+        "  Without any parameters, this command prints the current game mode\n"
+        "  You can interactively set the game mode with 'mode set'.\n"
+        "!!Setting the game modes can be dangerous and break your game!!\n"
+    ));
     return CR_OK;
 }
 
@@ -66,6 +69,9 @@ void printCurrentModes(t_gamemodes gm, Console & con)
     case GAMETYPE_NONE:
         con << "NONE)" << endl;
         break;
+    default:
+        con << "!!UNKNOWN!!)" << endl;
+        break;
     }
     con << "Current game mode:\t" << gm.g_mode << " (";
     switch (gm.g_mode)
@@ -82,31 +88,30 @@ void printCurrentModes(t_gamemodes gm, Console & con)
     case GAMEMODE_NONE:
         con << "NONE)" << endl;
         break;
+    default:
+        con << "!!UNKNOWN!!)" << endl;
+        break;
     }
 }
 
-DFhackCExport command_result mode (Core * c, vector <string> & parameters)
+command_result mode (Core * c, vector <string> & parameters)
 {
     string command = "";
     bool set = false;
+    bool abuse = false;
     t_gamemodes gm;
-    if(parameters.size())
+    for(auto iter = parameters.begin(); iter != parameters.end(); iter++)
     {
-        if(parameters[0] == "set")
+        if((*iter) == "set")
         {
             set = true;
         }
-        else if(parameters[0] == "?" || parameters[0] == "help")
+        else if((*iter) == "abuse")
         {
-            c->con.print("Without any parameters, this command prints the current game mode\n"
-                         "You can interactively set the game mode with 'mode set'.\n");
-            c->con.printerr("!!Setting the game modes can be dangerous and break your game!!\n");
-            return CR_OK;
+            set = abuse = true;
         }
         else
-        {
-            c->con.printerr("Unrecognized parameter: %s\n",parameters[0].c_str());
-        }
+            return CR_WRONG_USAGE;
     }
     c->Suspend();
     World *world = c->getWorld();
@@ -116,57 +121,79 @@ DFhackCExport command_result mode (Core * c, vector <string> & parameters)
     printCurrentModes(gm, c->con);
     if(set)
     {
-        if(gm.g_mode == GAMEMODE_NONE || gm.g_type == GAMETYPE_VIEW_LEGENDS || gm.g_type == GAMETYPE_DWARF_RECLAIM)
+        if(!abuse)
         {
-            c->con.printerr("It is not safe to set modes in menus.\n");
-            return CR_FAILURE;
-        }
-        c->con << "\nPossible choices:" << endl
-               << "0 = Fortress Mode" << endl
-               << "1 = Adventurer Mode" << endl
-               << "2 = Arena Mode" << endl
-               << "3 = Arena, controlling creature" << endl
-               << "c = cancel/do nothing" << endl;
-        uint32_t select=99;
+            if( gm.g_mode == GAMEMODE_NONE || gm.g_type == GAMETYPE_VIEW_LEGENDS)
+            {
+                c->con.printerr("It is not safe to set modes in menus.\n");
+                return CR_FAILURE;
+            }
+            c->con << "\nPossible choices:" << endl
+                   << "0 = Fortress Mode" << endl
+                   << "1 = Adventurer Mode" << endl
+                   << "2 = Arena Mode" << endl
+                   << "3 = Arena, controlling creature" << endl
+                   << "4 = Reclaim Fortress Mode" << endl
+                   << "c = cancel/do nothing" << endl;
+            uint32_t select=99;
 
-        string selected;
-        input_again:
-        CommandHistory hist;
-        c->con.lineedit("Enter new mode: ",selected, hist);
-        if(selected == "c")
-            return CR_OK;
-        const char * start = selected.c_str();
-        char * end = 0;
-        select = strtol(start, &end, 10);
-        if(!end || end==start || select > 3)
-        {
-            c->con.printerr("This is not a valid selection.\n");
-            goto input_again;
+            string selected;
+            input_again:
+            CommandHistory hist;
+            c->con.lineedit("Enter new mode: ",selected, hist);
+            if(selected == "c")
+                return CR_OK;
+            const char * start = selected.c_str();
+            char * end = 0;
+            select = strtol(start, &end, 10);
+            if(!end || end==start || select > 4)
+            {
+                c->con.printerr("This is not a valid selection.\n");
+                goto input_again;
+            }
+            switch(select)
+            {
+                case 0:
+                    gm.g_mode = GAMEMODE_DWARF;
+                    gm.g_type = GAMETYPE_DWARF_MAIN;
+                    break;
+                case 1:
+                    gm.g_mode = GAMEMODE_ADVENTURE;
+                    gm.g_type = GAMETYPE_ADVENTURE_MAIN;
+                    break;
+                case 2:
+                    gm.g_mode = GAMEMODE_DWARF;
+                    gm.g_type = GAMETYPE_DWARF_ARENA;
+                    break;
+                case 3:
+                    gm.g_mode = GAMEMODE_ADVENTURE;
+                    gm.g_type = GAMETYPE_ADVENTURE_ARENA;
+                    break;
+                case 4:
+                    gm.g_mode = GAMEMODE_DWARF;
+                    gm.g_type = GAMETYPE_DWARF_RECLAIM;
+                    break;
+            }
         }
-
-        switch(select)
+        else
         {
-            case 0:
-                gm.g_mode = GAMEMODE_DWARF;
-                gm.g_type = GAMETYPE_DWARF_MAIN;
-                break;
-            case 1:
-                gm.g_mode = GAMEMODE_ADVENTURE;
-                gm.g_type = GAMETYPE_ADVENTURE_MAIN;
-                break;
-            case 2:
-                gm.g_mode = GAMEMODE_DWARF;
-                gm.g_type = GAMETYPE_DWARF_ARENA;
-                break;
-            case 3:
-                gm.g_mode = GAMEMODE_ADVENTURE;
-                gm.g_type = GAMETYPE_ADVENTURE_ARENA;
-                break;
+            CommandHistory hist;
+            string selected;
+            c->con.lineedit("Enter new game mode number (c for exit): ",selected, hist);
+            if(selected == "c")
+                return CR_OK;
+            const char * start = selected.c_str();
+            gm.g_mode = (GameMode) strtol(start, 0, 10);
+            c->con.lineedit("Enter new game type number (c for exit): ",selected, hist);
+            if(selected == "c")
+                return CR_OK;
+            start = selected.c_str();
+            gm.g_type = (GameType) strtol(start, 0, 10);
         }
         c->Suspend();
         world->WriteGameMode(gm);
         c->Resume();
-        cout << endl;
+        c->con << endl;
     }
     return CR_OK;
 }

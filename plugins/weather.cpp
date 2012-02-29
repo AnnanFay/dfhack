@@ -1,10 +1,10 @@
 #include "Core.h"
-#include <Console.h>
-#include <Export.h>
-#include <PluginManager.h>
+#include "Console.h"
+#include "Export.h"
+#include "PluginManager.h"
 #include <vector>
 #include <string>
-#include <modules/World.h>
+#include "modules/World.h"
 
 using std::vector;
 using std::string;
@@ -13,17 +13,22 @@ using namespace DFHack;
 bool locked = false;
 unsigned char locked_data[25];
 
-DFhackCExport command_result weather (Core * c, vector <string> & parameters);
+command_result weather (Core * c, vector <string> & parameters);
 
-DFhackCExport const char * plugin_name ( void )
-{
-    return "weather";
-}
+DFHACK_PLUGIN("weather");
 
 DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
 {
     commands.clear();
-    commands.push_back(PluginCommand("weather", "Print the weather map or change weather.",weather));
+    commands.push_back(PluginCommand(
+        "weather", "Print the weather map or change weather.",
+        weather, false,
+        "  Prints the current weather map by default.\n"
+        "Options:\n"
+        "  snow   - make it snow everywhere.\n"
+        "  rain   - make it rain.\n"
+        "  clear  - clear the sky.\n"
+    ));
     return CR_OK;
 }
 
@@ -32,16 +37,16 @@ DFhackCExport command_result plugin_shutdown ( Core * c )
     return CR_OK;
 }
 
-DFhackCExport command_result weather (Core * c, vector <string> & parameters)
+command_result weather (Core * c, vector <string> & parameters)
 {
     Console & con = c->con;
+    int val_override = -1;
     bool lock = false;
     bool unlock = false;
     bool snow = false;
     bool rain = false;
     bool clear = false;
-    bool help = false;
-    for(int i = 0; i < parameters.size();i++)
+    for(size_t i = 0; i < parameters.size();i++)
     {
         if(parameters[i] == "rain")
             rain = true;
@@ -53,18 +58,12 @@ DFhackCExport command_result weather (Core * c, vector <string> & parameters)
             lock = true;
         else if(parameters[i] == "unlock")
             unlock = true;
-        else if(parameters[i] == "help" || parameters[i] == "?")
-            help = true;
-    }
-    if(help)
-    {
-        c->con.print("Prints the current weather map by default.\n"
-                     "Options:\n"
-                     "snow   - make it snow everywhere.\n"
-                     "rain   - make it rain.\n"
-                     "clear  - clear the sky.\n"
-        );
-        return CR_OK;
+        else
+        {
+            val_override = atoi(parameters[i].c_str());
+            if(val_override == 0)
+                return CR_WRONG_USAGE;
+        }
     }
     if(lock && unlock)
     {
@@ -80,13 +79,13 @@ DFhackCExport command_result weather (Core * c, vector <string> & parameters)
         con << "Rain, snow or clear sky? DECIDE!" << std::endl;
         return CR_FAILURE;
     }
-    bool something = lock || unlock || rain || snow || clear;
-    c->Suspend();
+    bool something = lock || unlock || rain || snow || clear || val_override != -1;
+
+    CoreSuspender suspend(c);
     DFHack::World * w = c->getWorld();
     if(!w->wmap)
     {
         con << "Weather support seems broken :(" << std::endl;
-        c->Resume();
         return CR_FAILURE;
     }
     if(!something)
@@ -99,18 +98,18 @@ DFhackCExport command_result weather (Core * c, vector <string> & parameters)
             {
                 switch((*w->wmap)[x][y])
                 {
-                    case DFHack::CLEAR:
-                        con << "C ";
-                        break;
-                    case DFHack::RAINING:
-                        con << "R ";
-                        break;
-                    case DFHack::SNOWING:
-                        con << "S ";
-                        break;
-                    default:
-                        con << (int) (*w->wmap)[x][y] << " ";
-                        break;
+                case CLEAR:
+                    con << "C ";
+                    break;
+                case RAINING:
+                    con << "R ";
+                    break;
+                case SNOWING:
+                    con << "S ";
+                    break;
+                default:
+                    con << (int) (*w->wmap)[x][y] << " ";
+                    break;
                 }
             }
             con << std::endl;
@@ -134,8 +133,12 @@ DFhackCExport command_result weather (Core * c, vector <string> & parameters)
             con << "Suddenly, sunny weather!" << std::endl;
             w->SetCurrentWeather(CLEAR);
         }
+        if(val_override != -1)
+        {
+            con << "I have no damn idea what this is... " << val_override << std::endl;
+            w->SetCurrentWeather(val_override);
+        }
         // FIXME: weather lock needs map ID to work reliably... needs to be implemented.
     }
-    c->Resume();
     return CR_OK;
 }

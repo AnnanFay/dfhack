@@ -28,8 +28,10 @@ static tthread::mutex* mymutex=0;
 static tthread::thread* thread_dfusion=0;
 uint64_t timeLast=0;
 
-DFhackCExport command_result dfusion (Core * c, vector <string> & parameters);
-DFhackCExport command_result lua_run (Core * c, vector <string> & parameters);
+DFHACK_PLUGIN("dfusion")
+
+command_result dfusion (Core * c, vector <string> & parameters);
+command_result lua_run (Core * c, vector <string> & parameters);
 
 DFhackCExport const char * plugin_name ( void )
 {
@@ -38,7 +40,6 @@ DFhackCExport const char * plugin_name ( void )
 
 DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
 {
-    commands.clear();
 	lua::state st=lua::glua::Get();
 	//maybe remake it to run automaticaly
 	lua::RegisterConsole(st,&c->con);
@@ -126,7 +127,7 @@ void InterpreterLoop(Core* c)
 	}
 	s.settop(0);
 }
-DFhackCExport command_result lua_run (Core * c, vector <string> & parameters)
+command_result lua_run (Core * c, vector <string> & parameters)
 {
 	Console &con=c->con;
 	mymutex->lock();
@@ -172,7 +173,7 @@ void RunDfusion(void *p)
 	s.settop(0);// clean up
 	mymutex->unlock();
 }
-DFhackCExport command_result dfusion (Core * c, vector <string> & parameters)
+command_result dfusion (Core * c, vector <string> & parameters)
 {
 	if(parameters[0]=="init")
 	{

@@ -1,9 +1,14 @@
 # main project file. use it from a build sub-folder, see COMPILE for details
 
-## setting the build type.
-IF(NOT DEFINED CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
-  SET(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: Release RelWithDebInfo.")
-ENDIF()
+# Set up build types
+if(CMAKE_CONFIGURATION_TYPES)
+  SET(CMAKE_CONFIGURATION_TYPES Release RelWithDebInfo)
+  SET(CMAKE_CONFIGURATION_TYPES "${CMAKE_CONFIGURATION_TYPES}" CACHE STRING "List of supported configuration types" FORCE)
+else(CMAKE_CONFIGURATION_TYPES)
+  if (NOT CMAKE_BUILD_TYPE)
+    SET(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: Release RelWithDebInfo.")
+  endif (NOT CMAKE_BUILD_TYPE)
+endif(CMAKE_CONFIGURATION_TYPES)
 
 ## some generic CMake magic
 cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
@@ -21,20 +26,25 @@ endif()
 
 # set up versioning.
 set(DF_VERSION_MAJOR "0")
-set(DF_VERSION_MINOR "31")
-set(DF_VERSION_PATCH "25")
+set(DF_VERSION_MINOR "34")
+set(DF_VERSION_PATCH "03")
 set(DF_VERSION "${DF_VERSION_MAJOR}.${DF_VERSION_MINOR}.${DF_VERSION_PATCH}")
 
-set(DFHACK_RELEASE "9")
+set(DFHACK_RELEASE "1-dev0")
+
+set(DFHACK_VERSION "${DF_VERSION_MAJOR}.${DF_VERSION_MINOR}.${DF_VERSION_PATCH}-r${DFHACK_RELEASE}")
+add_definitions(-DDFHACK_VERSION="${DFHACK_VERSION}")
 
 ## where to install things (after the build is done, classic 'make install' or package structure)
 # the dfhack libraries will be installed here:
 IF(UNIX)
     # put the lib into DF/hack
     SET(DFHACK_LIBRARY_DESTINATION hack)
+    SET(DFHACK_EGGY_DESTINATION libs)
 ELSE()
     # windows is crap, therefore we can't do nice things with it. leave the libs on a nasty pile...
     SET(DFHACK_LIBRARY_DESTINATION .)
+    SET(DFHACK_EGGY_DESTINATION .)
 ENDIF()
 # external tools will be installed here:
 SET(DFHACK_BINARY_DESTINATION .)
@@ -64,8 +74,8 @@ OPTION(BUILD_PLUGINS "Build the plugins." ON)
 IF(UNIX)
   add_definitions(-DLINUX_BUILD)
   SET(CMAKE_CXX_FLAGS_DEBUG "-g -Wall")
-  SET(CMAKE_CXX_FLAGS "-fvisibility=hidden -m32 -march=i686 -std=c++0x")
-  SET(CMAKE_C_FLAGS "-fvisibility=hidden -m32 -march=i686")
+  SET(CMAKE_CXX_FLAGS "-fvisibility=hidden -m32 -march=i686 -mtune=generic -std=c++0x")
+  SET(CMAKE_C_FLAGS "-fvisibility=hidden -m32 -march=i686 -mtune=generic")
 ENDIF()
 
 #add depends to include path
@@ -94,5 +104,5 @@ ELSEIF(WIN32)
     SET(CPACK_GENERATOR "ZIP")
 ENDIF()
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY 0)
-set(CPACK_PACKAGE_FILE_NAME "dfhack-${DF_VERSION}-r${DFHACK_RELEASE}-${CMAKE_SYSTEM_NAME}")
+set(CPACK_PACKAGE_FILE_NAME "dfhack-${DFHACK_VERSION}-${CMAKE_SYSTEM_NAME}")
 INCLUDE(CPack)

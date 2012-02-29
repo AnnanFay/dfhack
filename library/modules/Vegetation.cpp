@@ -33,33 +33,54 @@ using namespace std;
 #include "VersionInfo.h"
 #include "MemAccess.h"
 #include "Types.h"
-#include "modules/Vegetation.h"
-#include "modules/Translation.h"
-#include "ModuleFactory.h"
 #include "Core.h"
 using namespace DFHack;
 
-Module* DFHack::createVegetation()
+#include "modules/Vegetation.h"
+#include "df/world.h"
+
+using namespace DFHack;
+using namespace DFHack::Simple;
+using df::global::world;
+
+bool Vegetation::isValid()
 {
-    return new Vegetation();
+    return (world != NULL);
 }
 
-Vegetation::Vegetation()
+uint32_t Vegetation::getCount()
 {
-    Core & c = Core::getInstance();
-    try
-    {
-        OffsetGroup * OG_Veg = c.vinfo->getGroup("Vegetation");
-        all_plants = (vector<df_plant *> *) OG_Veg->getAddress ("vector");
-    }
-    catch(exception &)
-    {
-        all_plants = 0;
-    }
+    return world->plants.all.size();
 }
 
-Vegetation::~Vegetation()
+df::plant * Vegetation::getPlant(const int32_t index)
 {
+    if (index < 0 || index >= getCount())
+        return NULL;
+    return world->plants.all[index];
 }
 
+bool Vegetation::copyPlant(const int32_t index, t_plant &out)
+{
+    if (index < 0 || index >= getCount())
+        return false;
 
+    out.origin = world->plants.all[index];
+
+    out.name = out.origin->name;
+    out.flags = out.origin->flags;
+    out.material = out.origin->material;
+    out.pos = out.origin->pos;
+    out.grow_counter = out.origin->grow_counter;
+    out.temperature_1 = out.origin->temperature_1;
+    out.temperature_2 = out.origin->temperature_2;
+    out.is_burning = out.origin->is_burning;
+    out.hitpoints = out.origin->hitpoints;
+    out.update_order = out.origin->update_order;
+    //out.unk1 = out.origin->anon_1;
+    //out.unk2 = out.origin->anon_2;
+    //out.temperature_3 = out.origin->temperature_3;
+    //out.temperature_4 = out.origin->temperature_4;
+    //out.temperature_5 = out.origin->temperature_5;
+    return true;
+}

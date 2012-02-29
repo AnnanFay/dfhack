@@ -56,15 +56,18 @@ using namespace DFHack;
 #include "df/world_data.h"
 #include "df/interface.h"
 #include "df/viewscreen_dwarfmodest.h"
+#include <df/graphic.h>
 
 #include <stdio.h>
 #include <iomanip>
 #include <stdlib.h>
 #include <fstream>
 #include "tinythread.h"
+#include <llex.h>
 
 using namespace tthread;
 using namespace df::enums;
+using df::global::init;
 
 struct Core::Cond
 {
@@ -100,7 +103,7 @@ void cheap_tokenise(string const& input, vector<string> &output)
 {
     string *cur = NULL;
 
-    for (unsigned i = 0; i < input.size(); i++) {
+    for (size_t i = 0; i < input.size(); i++) {
         char c = input[i];
         if (isspace(c)) {
             cur = NULL;
@@ -171,6 +174,21 @@ void fHKthread(void * iodata)
     }
 }
 
+struct sortable
+{
+    bool recolor;
+    string name;
+    string description;
+    //FIXME: Nuke when MSVC stops failing at being C++11 compliant
+    sortable(bool recolor_,const string& name_,const string & description_): recolor(recolor_), name(name_), description(description_){};
+    bool operator <(const sortable & rhs) const
+    {
+        if( name < rhs.name )
+            return true;
+        return false;
+    };
+};
+
 static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clueless_counter, const string &command)
 {
     Console & con = core->con;
@@ -193,7 +211,7 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
         cerr << "Invoking: " << command << endl;
         
         // let's see what we actually got
-        if(first=="help" || first == "?")
+        if(first=="help" || first == "?" || first == "man")
         {
             if(!parts.size())
             {
@@ -203,7 +221,8 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
                           "On Windows, you may have to resize your console window. The appropriate menu is accessible\n"
                           "by clicking on the program icon in the top bar of the window.\n\n"
                           "Basic commands:\n"
-                          "  help|?                - This text.\n"
+                          "  help|?|man            - This text.\n"
+                          "  help COMMAND          - Usage help for the given command.\n"
                           "  ls|dir [PLUGIN]       - List available commands. Optionally for single plugin.\n"
                           "  cls                   - Clear the console.\n"
                           "  fpause                - Force DF to pause.\n"
@@ -221,7 +240,7 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
             {
                 Plugin *plug = plug_mgr->getPluginByCommand(parts[0]);
                 if (plug) {
-                    for (int j = 0; j < plug->size();j++)
+                    for (size_t j = 0; j < plug->size();j++)
                     {
                         const PluginCommand & pcmd = (plug->operator[](j));
                         if (pcmd.name != parts[0])
@@ -250,7 +269,7 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
                 string & plugname = parts[0];
                 if(plugname == "all")
                 {
-                    for(int i = 0; i < plug_mgr->size();i++)
+                    for(size_t i = 0; i < plug_mgr->size();i++)
                     {
                         Plugin * plug = (plug_mgr->operator[](i));
                         plug->load();
@@ -277,7 +296,7 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
                 string & plugname = parts[0];
                 if(plugname == "all")
                 {
-                    for(int i = 0; i < plug_mgr->size();i++)
+                    for(size_t i = 0; i < plug_mgr->size();i++)
                     {
                         Plugin * plug = (plug_mgr->operator[](i));
                         plug->reload();
@@ -304,7 +323,7 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
                 string & plugname = parts[0];
                 if(plugname == "all")
                 {
-                    for(int i = 0; i < plug_mgr->size();i++)
+                    for(size_t i = 0; i < plug_mgr->size();i++)
                     {
                         Plugin * plug = (plug_mgr->operator[](i));
                         plug->unload();
@@ -334,7 +353,7 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
                 {
                     con.printerr("There's no plugin called %s!\n",plugname.c_str());
                 }
-                else for (int j = 0; j < plug->size();j++)
+                else for (size_t j = 0; j < plug->size();j++)
                 {
                     const PluginCommand & pcmd = (plug->operator[](j));
                     if (pcmd.isHotkeyCommand())
@@ -347,11 +366,12 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
             {
                 con.print(
                 "builtin:\n"
-                "  help|?                - This text or help specific to a plugin.\n"
+                "  help|?|man            - This text or help specific to a plugin.\n"
                 "  ls [PLUGIN]           - List available commands. Optionally for single plugin.\n"
                 "  cls                   - Clear the console.\n"
                 "  fpause                - Force DF to pause.\n"
                 "  die                   - Force DF to close immediately\n"
+                "  keybinding            - Modify bindings of commands to keys\n"
                 "  belongs COMMAND       - Tell which plugin a command belongs to.\n"
                 "  plug [PLUGIN|v]       - List plugin state and detailed description.\n"
                 "  load PLUGIN|all       - Load a plugin by name or load all possible plugins.\n"
@@ -360,25 +380,30 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
                 "\n"
                 "plugins:\n"
                 );
-                for(int i = 0; i < plug_mgr->size();i++)
+                std::set <sortable> out;
+                for(size_t i = 0; i < plug_mgr->size();i++)
                 {
                     const Plugin * plug = (plug_mgr->operator[](i));
                     if(!plug->size())
                         continue;
-                    for (int j = 0; j < plug->size();j++)
+                    for (size_t j = 0; j < plug->size();j++)
                     {
                         const PluginCommand & pcmd = (plug->operator[](j));
-                        if (pcmd.isHotkeyCommand())
-                            con.color(Console::COLOR_CYAN);
-                        con.print("  %-22s- %s\n",pcmd.name.c_str(), pcmd.description.c_str());
-                        con.reset_color();
+                        out.insert(sortable(pcmd.isHotkeyCommand(),pcmd.name,pcmd.description));
                     }
+                }
+                for(auto iter = out.begin();iter != out.end();iter++)
+                {
+                    if ((*iter).recolor)
+                        con.color(Console::COLOR_CYAN);
+                    con.print("  %-22s- %s\n",(*iter).name.c_str(), (*iter).description.c_str());
+                    con.reset_color();
                 }
             }
         }
         else if(first == "plug")
         {
-            for(int i = 0; i < plug_mgr->size();i++)
+            for(size_t i = 0; i < plug_mgr->size();i++)
             {
                 const Plugin * plug = (plug_mgr->operator[](i));
                 if(!plug->size())
@@ -403,7 +428,7 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
             }
             else if (parts.size() >= 2 && parts[0] == "clear")
             {
-                for (unsigned i = 1; i < parts.size(); i++)
+                for (size_t i = 1; i < parts.size(); i++)
                 {
                     if (!core->ClearKeyBindings(parts[i])) {
                         con.printerr("Invalid key spec: %s\n", parts[i].c_str());
@@ -416,7 +441,7 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
                 std::vector<std::string> list = core->ListKeyBindings(parts[1]);
                 if (list.empty())
                     con << "No bindings." << endl;
-                for (unsigned i = 0; i < list.size(); i++)
+                for (size_t i = 0; i < list.size(); i++)
                     con << "  " << list[i] << endl;
             }
             else
@@ -591,9 +616,9 @@ bool Core::Init()
 
     // find out what we are...
     #ifdef LINUX_BUILD
-        const char * path = "hack/Memory.xml";
+        const char * path = "hack/symbols.xml";
     #else
-        const char * path = "hack\\Memory.xml";
+        const char * path = "hack\\symbols.xml";
     #endif
     vif = new DFHack::VersionInfoFactory();
     cerr << "Identifying DF version.\n";
@@ -604,7 +629,7 @@ bool Core::Init()
     catch(Error::All & err)
     {
         std::stringstream out;
-        out << "Error while reading Memory.xml:\n";
+        out << "Error while reading symbols.xml:\n";
         out << err.what() << std::endl;
         delete vif;
         vif = NULL;
@@ -629,7 +654,7 @@ bool Core::Init()
     // init the console.
     Gui * g = getGui();
     bool is_text_mode = false;
-    if(g->init && g->init->graphics.flags.is_set(GRAPHICS_TEXT))
+    if(init && init->display.flag.is_set(init_display_flags::TEXT))
     {
         is_text_mode = true;
     }
@@ -637,18 +662,18 @@ bool Core::Init()
         cerr << "Console is running.\n";
     else
         fatal ("Console has failed to initialize!\n", false);
-
+/*
     // dump offsets to a file
     std::ofstream dump("offsets.log");
     if(!dump.fail())
     {
-        dump << vinfo->PrintOffsets();
+        //dump << vinfo->PrintOffsets();
         dump.close();
     }
-    
+    */
     // initialize data defs
     virtual_identity::Init(this);
-    InitDataDefGlobals(this);
+    df::global::InitGlobals();
 
     // create mutex for syncing with interactive tasks
     StackMutex = new mutex();
@@ -747,6 +772,32 @@ void Core::Resume()
     AccessMutex->unlock();
 }
 
+struct screen_tile
+{
+    unsigned char symbol;
+    unsigned char front;
+    unsigned char back;
+    unsigned char bright;
+};
+
+void screen_paint (int x, int y, uint8_t symbol)
+{
+    int tile = x * df::global::gps->dimy + y;
+    screen_tile *s = (screen_tile *) (df::global::gps->screen + tile*4);
+    s->symbol = symbol;
+}
+
+int Core::TileUpdate()
+{
+    screen_paint(0,0,'D');
+    screen_paint(1,0,'F');
+    screen_paint(2,0,'H');
+    screen_paint(3,0,'a');
+    screen_paint(4,0,'c');
+    screen_paint(5,0,'k');
+    return true;
+}
+
 // should always be from simulation thread!
 int Core::Update()
 {
@@ -817,7 +868,7 @@ int Core::Shutdown ( void )
         plug_mgr = 0;
     }
     // invalidate all modules
-    for(unsigned int i = 0 ; i < allModules.size(); i++)
+    for(size_t i = 0 ; i < allModules.size(); i++)
     {
         delete allModules[i];
     }
@@ -827,6 +878,7 @@ int Core::Shutdown ( void )
     return -1;
 }
 
+// FIXME: this is HORRIBLY broken
 // from ncurses
 #define KEY_F0      0410        /* Function keys.  Space for 64 */
 #define KEY_F(n)    (KEY_F0+(n))    /* Value of function key n */
@@ -843,19 +895,18 @@ bool Core::ncurses_wgetch(int in, int & out)
         int idx = in - KEY_F(1);
         // FIXME: copypasta, push into a method!
         Gui * g = getGui();
-        if(g->hotkeys && g->df_interface && g->df_menu_state)
+        if(df::global::ui && df::global::gview && g->df_menu_state)
         {
-            t_viewscreen * ws = g->GetCurrentScreen();
-            // FIXME: put hardcoded values into memory.xml
-            if(ws->getClassName() == "viewscreen_dwarfmodest" && *g->df_menu_state == 0x23)
+            df::viewscreen * ws = g->GetCurrentScreen();
+            // FIXME: USE ENUMS
+            if(((t_virtual *)ws)->getClassName() == "viewscreen_dwarfmodest" && *g->df_menu_state == 0x23)
             {
                 out = in;
                 return true;
             }
             else
             {
-                t_hotkey & hotkey = (*g->hotkeys)[idx];
-                setHotkeyCmd(hotkey.name);
+                setHotkeyCmd(df::global::ui->main.hotkeys[idx].name);
                 return false;
             }
         }
@@ -864,16 +915,17 @@ bool Core::ncurses_wgetch(int in, int & out)
     return true;
 }
 
-int Core::SDL_Event(SDL::Event* ev, int orig_return)
+//MEMO: return false if event is consumed
+int Core::SDL_Event(SDL::Event* ev)
 {
     // do NOT process events before we are ready.
-    if(!started) return orig_return;
+    if(!started) return true;
     if(!ev)
-        return orig_return;
+        return true;
     if(ev && ev->type == SDL::ET_KEYDOWN || ev->type == SDL::ET_KEYUP)
     {
         SDL::KeyboardEvent * ke = (SDL::KeyboardEvent *)ev;
-        
+
         if(ke->state == SDL::BTN_PRESSED && !hotkey_states[ke->ksym.sym])
         {
             hotkey_states[ke->ksym.sym] = true;
@@ -890,7 +942,7 @@ int Core::SDL_Event(SDL::Event* ev, int orig_return)
             hotkey_states[ke->ksym.sym] = false;
         }
     }
-    return orig_return;
+    return true;
     // do stuff with the events...
 }
 
@@ -1088,16 +1140,8 @@ TYPE * Core::get##TYPE() \
     return s_mods.p##TYPE;\
 }
 
-MODULE_GETTER(Units);
-MODULE_GETTER(Engravings);
-MODULE_GETTER(Maps);
 MODULE_GETTER(Gui);
 MODULE_GETTER(World);
 MODULE_GETTER(Materials);
-MODULE_GETTER(Items);
-MODULE_GETTER(Translation);
-MODULE_GETTER(Vegetation);
-MODULE_GETTER(Constructions);
-MODULE_GETTER(Vermin);
 MODULE_GETTER(Notes);
 MODULE_GETTER(Graphic);

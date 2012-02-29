@@ -4,10 +4,28 @@ Building DFHACK
 
 .. contents::
 
-=================
-Building on Linux
-=================
+
+
+=====
+Linux
+=====
 On Linux, DFHack acts as a library that shadows parts of the SDL API using LD_PRELOAD.
+
+How to get the code
+===================
+DFHack doesn't have any kind of system of code snapshots in place, so you will have to get code from the github repository using git.
+Having a 'git' package installed is the minimal requirement, but some sort of git gui or git integration for your favorite text editor/IDE will certainly help.
+
+The code resides here: https://github.com/peterix/dfhack
+
+If you just want to compile DFHack or work on it by contributing patches, it's quite enough to clone from the read-only address::
+    
+    git clone git://github.com/peterix/dfhack.git
+    cd dfhack
+    git submodule init
+    git submodule update
+
+If you want to get really involved with the development, create an account on github, make a clone there and then use that as your remote repository instead. Detailed instructions are beyond the scope of this document. If you need help, join us on IRC (#dfhack channel on freenode).
 
 Dependencies
 ============
@@ -45,9 +63,34 @@ extra options.
 You can also use a cmake-friendly IDE like KDevelop 4 or the cmake-gui
 program.
 
+=======
+Windows
+=======
+On Windows, DFHack replaces the SDL library distributed with DF.
+
+How to get the code
 ===================
-Building on Windows
-===================
+DFHack doesn't have any kind of system of code snapshots in place, so you will have to get code from the github repository using git.
+You will need some sort of Windows port of git, or a GUI. Some examples:
+
+ * http://code.google.com/p/msysgit/ - this is a command line version of git for windows. Most tutorials on git usage will apply.
+ * http://code.google.com/p/tortoisegit/ - this puts a pretty, graphical face on top of msysgit :)
+
+The code resides here: https://github.com/peterix/dfhack
+
+If you just want to compile DFHack or work on it by contributing patches, it's quite enough to clone from the read-only address::
+    
+    git clone git://github.com/peterix/dfhack.git
+    cd dfhack
+    git submodule init
+    git submodule update
+
+The tortoisegit GUI should have the equivalent options included.
+
+If you want to get really involved with the development, create an account on github, make a clone there and then use that as your remote repository instead. Detailed instructions are beyond the scope of this document. If you need help, join us on IRC (#dfhack channel on freenode).
+
+Dependencies
+============
 First, you need ``cmake``. Get the win32 installer version from the official
 site: http://www.cmake.org/cmake/resources/software.html
 
@@ -64,17 +107,30 @@ For the code generation parts, you'll need perl and XML::LibXML. You can install
 * open a cmd.exe window and run "cpan XML::LibXML" (obviously without the quotes). This can take a while to complete.
 * Same with "cpan XML::LibXSLT".
 
+If you already have a different version of perl (for example the one from cygwin), you can run into some trouble. Either remove the other perl install from PATH, or install libxml and libxslt for it instead. Strawberry perl works though and has all the required packages.
+
 Build
 =====
-Open the ``build`` folder and double click the batch script there. This will eventually open
-a cmake GUI window. Here, set CMAKE_INSTALL_PREFIX to your DF folder and set up any other
-options you're interested in. Hit configure and generate, close the GUI.
+There are several different batch files in the ``build`` folder along with a script that's used for picking the DF path.
 
-This crates a folder under build/ that contains the solution files for MSVC.
+First, run set_df_path.vbs and point the dialog that pops up at your DF folder that you want to use for development.
+Next, run one of the scripts with ``generate`` prefix. These create the MSVC solution file(s):
 
-When you open the solution, make sure you never use the Debug builds. Those aren't
+* ``all`` will create a solution with everything enabled (and the kitchen sink).
+* ``gui`` will pop up the cmake gui and let you pick and choose what to build. This is probably what you want most of the time. Set the options you are interested in, then hit configure, then generate. More options can appear after the configure step.
+* ``minimal`` will create a minimal solution with just the bare necessities - the main library and standard plugins.
+
+Then you can either open the solution with MSVC or use one of the msbuild scripts:
+
+* Scripts with ``build`` prefix will only build.
+* Scripts with ``install`` prefix will build DFHack and install it to the previously selected DF path.
+* Scripts with ``package`` prefix will build and create a .zip package of DFHack.
+
+When you open the solution in MSVC, make sure you never use the Debug builds. Those aren't
 binary-compatible with DF. If you try to use a debug build with DF, you'll only get crashes.
 So pick either Release or RelWithDebInfo build and build the INSTALL target.
+
+The ``debug`` scripts actually do RelWithDebInfo builds.
 
 
 ===========
@@ -154,6 +210,7 @@ Good windows tools include:
 
 Good linux tools:
 
+* angavrilov's df-structures gui (visit us on IRC for details).
 * edb (Evan's Debugger)
 * IDA Pro running under wine.
 * Some of the tools residing in the ``legacy`` dfhack branch.

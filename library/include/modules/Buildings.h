@@ -24,6 +24,14 @@ distribution.
 
 #pragma once
 #include "Export.h"
+#include "DataDefs.h"
+#include "df/building.h"
+#include "df/furnace_type.h"
+#include "df/workshop_type.h"
+#include "df/construction_type.h"
+#include "df/shop_type.h"
+#include "df/siegeengine_type.h"
+#include "df/trap_type.h"
 
 namespace DFHack
 {
@@ -43,9 +51,19 @@ struct t_building
     uint32_t y2;
     uint32_t z;
     t_matglossPair material;
-    uint32_t type;
+    df::building_type type;
+    union
+    {
+        int16_t subtype;
+        df::furnace_type furnace_type;
+        df::workshop_type workshop_type;
+        df::construction_type construction_type;
+        df::shop_type shop_type;
+        df::siegeengine_type siegeengine_type;
+        df::trap_type trap_type;
+    };
     int32_t custom_type;
-    void * origin;
+    df::building * origin;
 };
 
 /**

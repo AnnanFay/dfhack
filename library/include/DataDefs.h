@@ -125,23 +125,52 @@ namespace DFHack
     template<class T>
     T *ifnull(T *a, T *b) { return a ? a : b; }
 
+    // Enums
     template<class T, T start, bool (*isvalid)(T)>
     inline T next_enum_item_(T v) {
         v = T(int(v) + 1);
         return isvalid(v) ? v : start;
     }
 
+    template<class T>
+    struct enum_list_attr {
+        int size;
+        const T *items;
+    };
+
+    // Bitfields
     struct bitfield_item_info {
         const char *name;
         int size;
     };
 
     DFHACK_EXPORT std::string bitfieldToString(const void *p, int size, const bitfield_item_info *items);
+    DFHACK_EXPORT int findBitfieldField(const std::string &name, int size, const bitfield_item_info *items);
+
+    template<class T>
+    inline int findBitfieldField(const T &val, const std::string &name) {
+        return findBitfieldField(name, sizeof(val.whole), val.get_items());
+    }
 
     template<class T>
     inline std::string bitfieldToString(const T &val) {
         return bitfieldToString(&val.whole, sizeof(val.whole), val.get_items());
     }
+}
+
+template<class T>
+int linear_index(const DFHack::enum_list_attr<T> &lst, T val) {
+    for (int i = 0; i < lst.size; i++)
+        if (lst.items[i] == val)
+            return i;
+    return -1;
+}
+
+inline int linear_index(const DFHack::enum_list_attr<const char*> &lst, const std::string &val) {
+    for (int i = 0; i < lst.size; i++)
+        if (lst.items[i] == val)
+            return i;
+    return -1;
 }
 
 namespace df
@@ -150,7 +179,9 @@ namespace df
     using DFHack::virtual_identity;
     using DFHack::virtual_class;
     using DFHack::bitfield_item_info;
+    using DFHack::enum_list_attr;
     using DFHack::BitArray;
+    using DFHack::DfArray;
 
     template<class T>
     class class_virtual_identity : public virtual_identity {
@@ -181,6 +212,18 @@ namespace df
         }
     };
 
+    template<class EnumType, class IntType1, class IntType2>
+    inline bool operator== (enum_field<EnumType,IntType1> a, enum_field<EnumType,IntType2> b)
+    {
+        return EnumType(a) == EnumType(b);
+    }
+
+    template<class EnumType, class IntType1, class IntType2>
+    inline bool operator!= (enum_field<EnumType,IntType1> a, enum_field<EnumType,IntType2> b)
+    {
+        return EnumType(a) != EnumType(b);
+    }
+
     namespace enums {}
 }
 
@@ -193,30 +236,11 @@ namespace df
 #define ENUM_NEXT_ITEM(enum,val) \
     (DFHack::next_enum_item_<df::enum,ENUM_FIRST_ITEM(enum),df::enums::enum::is_valid>(val))
 #define FOR_ENUM_ITEMS(enum,iter) \
-    for(df::enum iter = ENUM_FIRST_ITEM(enum); iter < ENUM_LAST_ITEM(enum); iter = df::enum(1+int(iter)))
+    for(df::enum iter = ENUM_FIRST_ITEM(enum); iter <= ENUM_LAST_ITEM(enum); iter = df::enum(1+int(iter)))
 
-namespace df {
-#define DF_KNOWN_GLOBALS \
-    GLOBAL(cursor,cursor) \
-    GLOBAL(selection_rect,selection_rect) \
-    GLOBAL(world,world) \
-    GLOBAL(ui,ui) \
-    GLOBAL(gview,interface) \
-    GLOBAL(init,init) \
-    GLOBAL(d_init,d_init) \
-    SIMPLE_GLOBAL(job_next_id,int) \
-    SIMPLE_GLOBAL(ui_look_cursor,int) \
-    SIMPLE_GLOBAL(ui_workshop_job_cursor,int) \
-    SIMPLE_GLOBAL(ui_workshop_in_add,bool) \
-    GLOBAL(ui_sidebar_menus,ui_sidebar_menus) \
-    GLOBAL(ui_build_selector,ui_build_selector) \
-    GLOBAL(ui_look_list,ui_look_list)
+// Global object pointers
+#include "df/global_objects.h"
 
-#define SIMPLE_GLOBAL(name,tname) \
-    namespace global { extern DFHACK_EXPORT tname *name; }
-#define GLOBAL(name,tname) \
-    struct tname; SIMPLE_GLOBAL(name,tname)
-DF_KNOWN_GLOBALS
-#undef GLOBAL
-#undef SIMPLE_GLOBAL
-}
+// A couple of headers that have to be included at once
+#include "df/coord2d.h"
+#include "df/coord.h"

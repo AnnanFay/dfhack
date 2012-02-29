@@ -24,20 +24,15 @@ struct t_vecTriplet
     void * alloc_end;
 };
 
-DFhackCExport command_result df_vectors  (Core * c,
+command_result df_vectors  (Core * c,
                                           vector <string> & parameters);
-DFhackCExport command_result df_clearvec (Core * c,
+command_result df_clearvec (Core * c,
                                           vector <string> & parameters);
 
-DFhackCExport const char * plugin_name ( void )
-{
-    return "vectors";
-}
+DFHACK_PLUGIN("vectors");
 
 DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
 {
-    commands.clear();
-
     commands.push_back(PluginCommand("vectors",
                "Scan memory for vectors.\
 \n                1st param: start of scan\
@@ -148,7 +143,7 @@ static void printVec(Console &con, const char* msg, t_vecTriplet *vec,
               msg, offset, pos, vec->start, length);
 }
 
-DFhackCExport command_result df_vectors (Core * c, vector <string> & parameters)
+command_result df_vectors (Core * c, vector <string> & parameters)
 {
     Console & con = c->con;
 
@@ -270,7 +265,7 @@ static void clearUsage(Console &con)
         << std::endl;
 }
 
-DFhackCExport command_result df_clearvec (Core * c, vector <string> & parameters)
+command_result df_clearvec (Core * c, vector <string> & parameters)
 {
     Console & con = c->con;
 

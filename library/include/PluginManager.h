@@ -43,7 +43,7 @@ namespace DFHack
 {
     class Core;
     class PluginManager;
-    struct virtual_identity;
+    class virtual_identity;
 
     enum command_result
     {
@@ -102,6 +102,7 @@ namespace DFHack
     class Plugin
     {
         struct RefLock;
+        struct RefAutolock;
         enum plugin_state
         {
             PS_UNLOADED,
@@ -185,5 +186,8 @@ namespace DFHack
     DFHACK_EXPORT bool default_hotkey(Core *, df::viewscreen *);
     DFHACK_EXPORT bool dwarfmode_hotkey(Core *, df::viewscreen *);
     DFHACK_EXPORT bool cursor_hotkey(Core *, df::viewscreen *);
-}
+};
 
+/// You have to have this in every plugin you write - just once. Ideally on top of the main file.
+#define DFHACK_PLUGIN(plugin_name) DFhackDataExport const char * version = DFHACK_VERSION;\
+DFhackDataExport const char * name = plugin_name;

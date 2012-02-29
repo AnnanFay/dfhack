@@ -13,8 +13,11 @@ include_directories (include)
 include_directories (depends/md5)
 include_directories (depends/tinyxml)
 include_directories (depends/tthread)
+add_subdirectory (depends/protobuf)
 
-execute_process(COMMAND perl xml/list.pl xml include/df ";"
+SET(PERL_EXECUTABLE "perl" CACHE FILEPATH "This is the perl executable to run in the codegen step. Tweak it if you need to run a specific one.")
+
+execute_process(COMMAND ${PERL_EXECUTABLE} xml/list.pl xml include/df ";"
                 WORKING_DIRECTORY ${dfapi_SOURCE_DIR}
                 OUTPUT_VARIABLE GENERATED_HDRS)
 
@@ -48,6 +51,7 @@ include/modules/Units.h
 include/modules/Engravings.h
 include/modules/Gui.h
 include/modules/Items.h
+include/modules/Job.h
 include/modules/kitchen.h
 include/modules/Maps.h
 include/modules/MapCache.h
@@ -68,7 +72,6 @@ DataStaticsCtor.cpp
 MiscUtils.cpp
 PluginManager.cpp
 TileTypes.cpp
-VersionInfo.cpp
 VersionInfoFactory.cpp
 Virtual.cpp
 
@@ -88,6 +91,7 @@ modules/Units.cpp
 modules/Engravings.cpp
 modules/Gui.cpp
 modules/Items.cpp
+modules/Job.cpp
 modules/kitchen.cpp
 modules/Maps.cpp
 modules/Materials.cpp
@@ -99,9 +103,6 @@ modules/World.cpp
 modules/Graphic.cpp
 )
 
-SET(PROJECT_HDRS_LINUX
-)
-
 SET(PROJECT_HDRS_WINDOWS
 include/wdirent.h
 )
@@ -109,18 +110,31 @@ include/wdirent.h
 SET(PROJECT_SRCS_LINUX
 Console-linux.cpp
 Hooks-linux.cpp
+PlugLoad-linux.cpp
 Process-linux.cpp
 )
 
 SET(PROJECT_SRCS_WINDOWS
 Console-windows.cpp
 Hooks-windows.cpp
+PlugLoad-windows.cpp
 Process-windows.cpp
 )
 
+SET(PROJECT_SRCS_LINUX_EGG
+Console-linux.cpp
+Hooks-egg.cpp
+PlugLoad-linux.cpp
+Process-linux.cpp
+)
+
 IF(UNIX)
-    LIST(APPEND PROJECT_HDRS ${PROJECT_HDRS_LINUX})
-    LIST(APPEND PROJECT_SRCS ${PROJECT_SRCS_LINUX})
+    OPTION(BUILD_EGGY "Make DFHack strangely egg-shaped." OFF)
+    IF(BUILD_EGGY)
+        LIST(APPEND PROJECT_SRCS ${PROJECT_SRCS_LINUX_EGG})
+    ELSE()
+        LIST(APPEND PROJECT_SRCS ${PROJECT_SRCS_LINUX})
+    ENDIF()
 ELSE()
     LIST(APPEND PROJECT_HDRS ${PROJECT_HDRS_WINDOWS})
     LIST(APPEND PROJECT_SRCS ${PROJECT_SRCS_WINDOWS})
@@ -139,7 +153,7 @@ FILE(GLOB GENERATE_INPUT_XMLS ${dfapi_SOURCE_DIR}/xml/*.xml)
 
 ADD_CUSTOM_COMMAND(
     OUTPUT ${dfapi_SOURCE_DIR}/include/df/static.inc
-    COMMAND perl xml/codegen.pl xml include/df
+    COMMAND ${PERL_EXECUTABLE} xml/codegen.pl xml include/df
     WORKING_DIRECTORY ${dfapi_SOURCE_DIR}
     MAIN_DEPENDENCY ${dfapi_SOURCE_DIR}/xml/codegen.pl
     DEPENDS ${GENERATE_INPUT_XMLS} ${GENERATE_INPUT_SCRIPTS}
@@ -161,18 +175,22 @@ IF(UNIX)
 ENDIF()
 
 IF(UNIX)
-  SET(PROJECT_LIBS rt )
+  SET(PROJECT_LIBS rt dl)
 ELSE(WIN32)
   #FIXME: do we really need this?
-  SET(PROJECT_LIBS psapi ${dfhack_SOURCE_DIR}/library/depends/ntdll/ntdll.lib)
+  SET(PROJECT_LIBS psapi)
 ENDIF()
 
 ADD_LIBRARY(dfhack SHARED ${PROJECT_SRCS})
 ADD_DEPENDENCIES(dfhack generate_headers)
 
-IF(WIN32)
-    SET_TARGET_PROPERTIES(dfhack PROPERTIES OUTPUT_NAME "SDL" )
-ENDIF()
+IF(BUILD_EGGY)
+    SET_TARGET_PROPERTIES(dfhack PROPERTIES OUTPUT_NAME "egg" )
+else()
+    IF(WIN32)
+        SET_TARGET_PROPERTIES(dfhack PROPERTIES OUTPUT_NAME "SDL" )
+    ENDIF()
+endif()
 
 #effectively disables debug builds...
 SET_TARGET_PROPERTIES(dfhack  PROPERTIES DEBUG_POSTFIX "-debug" )
@@ -184,19 +202,31 @@ IF(UNIX)
     install(PROGRAMS ${dfhack_SOURCE_DIR}/package/linux/dfhack
             DESTINATION .)
 ELSE()
-    # On windows, copy the renamed SDL so DF can still run.
-    install(PROGRAMS ${dfhack_SOURCE_DIR}/package/windows/SDLreal.dll
-            DESTINATION ${DFHACK_LIBRARY_DESTINATION})
+    if(NOT BUILD_EGGY)
+        # On windows, copy the renamed SDL so DF can still run.
+        install(PROGRAMS ${dfhack_SOURCE_DIR}/package/windows/SDLreal.dll
+                DESTINATION ${DFHACK_LIBRARY_DESTINATION})
+    endif()
 ENDIF()
 
 #install the main lib
-install(TARGETS dfhack
-        LIBRARY DESTINATION ${DFHACK_LIBRARY_DESTINATION}
-        RUNTIME DESTINATION ${DFHACK_LIBRARY_DESTINATION})
+if(NOT BUILD_EGGY)
+    install(TARGETS dfhack
+            LIBRARY DESTINATION ${DFHACK_LIBRARY_DESTINATION}
+            RUNTIME DESTINATION ${DFHACK_LIBRARY_DESTINATION})
+else()
+    install(TARGETS dfhack
+            LIBRARY DESTINATION ${DFHACK_EGGY_DESTINATION}
+            RUNTIME DESTINATION ${DFHACK_EGGY_DESTINATION})
+endif()
 #install the offset file
-install(FILES ${dfhack_SOURCE_DIR}/Memory.xml
+install(FILES xml/symbols.xml
         DESTINATION ${DFHACK_DATA_DESTINATION}) #linux: share/dfhack
+#install the example autoexec file
+install(FILES ../dfhack.init-example
+        DESTINATION ${DFHACK_BINARY_DESTINATION})
 
+# Unused for so long that it's not even relevant now...
 if(BUILD_DEVEL)
     if(WIN32)
         install(TARGETS dfhack
