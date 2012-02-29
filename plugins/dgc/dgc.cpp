@@ -34,7 +34,8 @@ DFhackCExport command_result dgc (Core * c, vector <string> & parameters)
     // Suspend DF
     CoreSuspender suspend(c);
 
-    write_json(world->units.all, "export/Dwarves.json");
+    write_json(world->units.all,    "export/Dwarves.json");
+    write_json(world->raws.creatures,    "export/Creatures.json");
 
     return CR_OK;
 }

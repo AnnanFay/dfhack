@@ -5,27 +5,17 @@ add_subdirectory (dfjson)
 # WTF
 include_directories (
     .
-    include/
+    dfjson/
+    dfjson/include
     ${CMAKE_SOURCE_DIR}
 )
 
-# A list of source files
-SET(PROJECT_SRCS
-    encode-df.cpp
-    encode.cpp
-    dgc.cpp
-)
-## A list of headers
-SET(PROJECT_HDRS
-    df-headers.h
-    encode-df.h
-    encode.h
-    dgc.h
-)
-
 # Some globbing
-#FILE(GLOB PROJECT_SRCS *.cpp)
-#FILE(GLOB PROJECT_HDRS *.h)
+FILE(GLOB PROJECT_SRCS *.cpp)
+FILE(GLOB PROJECT_HDRS *.h)
+
+FILE(GLOB DJS_SRCS dfjson/*.cpp)
+LIST(APPEND PROJECT_SRCS ${DJS_SRCS})
 
 SET_SOURCE_FILES_PROPERTIES( ${PROJECT_HDRS} PROPERTIES HEADER_FILE_ONLY TRUE)
 
