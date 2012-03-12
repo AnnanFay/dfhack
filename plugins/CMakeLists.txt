@@ -35,6 +35,11 @@ if(BUILD_DF2MC)
     add_subdirectory (df2mc)
 endif()
 
+OPTION(BUILD_DFJSON "Build DFJSON." ON)
+if(BUILD_DFJSON)
+    add_subdirectory (dfjson)
+endif()
+
 OPTION(BUILD_DGC "Build DGC." ON)
 if(BUILD_DGC)
     add_subdirectory (dgc)
