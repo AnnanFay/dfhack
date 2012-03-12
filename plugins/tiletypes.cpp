@@ -633,11 +633,11 @@ public:
 
 CommandHistory tiletypes_hist;
 
-command_result df_tiletypes (Core * c, vector <string> & parameters);
+command_result df_tiletypes (color_ostream &out, vector <string> & parameters);
 
 DFHACK_PLUGIN("tiletypes");
 
-DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand> &commands)
+DFhackCExport command_result plugin_init ( color_ostream &out, std::vector <PluginCommand> &commands)
 {
     tiletypes_hist.load("tiletypes.history");
     commands.clear();
@@ -645,23 +645,22 @@ DFhackCExport command_result plugin_init ( Core * c, std::vector <PluginCommand>
     return CR_OK;
 }
 
-DFhackCExport command_result plugin_shutdown ( Core * c )
+DFhackCExport command_result plugin_shutdown ( color_ostream &out )
 {
     tiletypes_hist.save("tiletypes.history");
     return CR_OK;
 }
 
-command_result df_tiletypes (Core * c, vector <string> & parameters)
+command_result df_tiletypes (color_ostream &out, vector <string> & parameters)
 {
     uint32_t x_max = 0, y_max = 0, z_max = 0;
     int32_t x = 0, y = 0, z = 0;
 
-    DFHack::Gui *gui;
     for(size_t i = 0; i < parameters.size();i++)
     {
         if(parameters[i] == "help" || parameters[i] == "?")
         {
-            c->con.print("This tool allows painting tiles types with a brush, using an optional filter.\n"
+            out.print("This tool allows painting tiles types with a brush, using an optional filter.\n"
                          "The tool is interactive, similarly to the liquids tool.\n"
                          "Further help is available inside.\n"
             );
@@ -669,25 +668,28 @@ command_result df_tiletypes (Core * c, vector <string> & parameters)
         }
     }
 
+    assert(out.is_console());
+    Console &con = static_cast<Console&>(out);
+
     TileType filter, paint;
     Brush *brush = new RectangleBrush(1,1);
     bool end = false;
     std::string brushname = "point";
     int width = 1, height = 1, z_levels = 1;
-    c->con << "Welcome to the tiletype tool.\nType 'help' or '?' for a list of available commands, 'q' to quit.\nPress return after a command to confirm." << std::endl;
-    c->con.printerr("THIS TOOL CAN BE DANGEROUS. YOU'VE BEEN WARNED.\n");
+    con << "Welcome to the tiletype tool.\nType 'help' or '?' for a list of available commands, 'q' to quit.\nPress return after a command to confirm." << std::endl;
+    con.printerr("THIS TOOL CAN BE DANGEROUS. YOU'VE BEEN WARNED.\n");
     while (!end)
     {
-        c->con << "Filter: " << filter    << std::endl
-               << "Paint: "  << paint     << std::endl
-               << "Brush: "  << brushname << std::endl;
+        con << "Filter: " << filter    << std::endl
+            << "Paint: "  << paint     << std::endl
+            << "Brush: "  << brushname << std::endl;
 
         std::string input = "";
         std::string command = "";
         std::string option = "";
         std::string value = "";
 
-        c->con.lineedit("tiletypes> ",input,tiletypes_hist);
+        con.lineedit("tiletypes> ",input,tiletypes_hist);
         tiletypes_hist.add(input);
         std::istringstream ss(input);
         ss >> command >> option >> value;
@@ -696,7 +698,7 @@ command_result df_tiletypes (Core * c, vector <string> & parameters)
 
         if (command == "help" || command == "?")
         {
-            help(c->con,option);
+            help(con,option);
         }
         else if (command == "quit" || command == "q")
         {
@@ -721,19 +723,19 @@ command_result df_tiletypes (Core * c, vector <string> & parameters)
             std::stringstream ss;
             CommandHistory hist;
             ss << "Set range width <" << width << "> ";
-            c->con.lineedit(ss.str(),command,hist);
+            con.lineedit(ss.str(),command,hist);
             width = command == "" ? width : toint(command);
             if (width < 1) width = 1;
 
             ss.str("");
             ss << "Set range height <" << height << "> ";
-            c->con.lineedit(ss.str(),command,hist);
+            con.lineedit(ss.str(),command,hist);
             height = command == "" ? height : toint(command);
             if (height < 1) height = 1;
 
             ss.str("");
             ss << "Set range z-levels <" << z_levels << "> ";
-            c->con.lineedit(ss.str(),command,hist);
+            con.lineedit(ss.str(),command,hist);
             z_levels = command == "" ? z_levels : toint(command);
             if (z_levels < 1) z_levels = 1;
 
@@ -764,30 +766,30 @@ command_result df_tiletypes (Core * c, vector <string> & parameters)
         {
             if (paint.empty())
             {
-                c->con.printerr("Set the paint first.\n");
+                con.printerr("Set the paint first.\n");
                 continue;
             }
 
-            CoreSuspender suspend(c);
-            gui = c->getGui();
+            CoreSuspender suspend;
+
             if (!Maps::IsValid())
             {
-                c->con.printerr("Map is not available!\n");
+                con.printerr("Map is not available!\n");
                 return CR_FAILURE;
             }
             Maps::getSize(x_max, y_max, z_max);
 
-            if (!(gui->Start() && gui->getCursorCoords(x,y,z)))
+            if (!Gui::getCursorCoords(x,y,z))
             {
-                c->con.printerr("Can't get cursor coords! Make sure you have a cursor active in DF.\n");
+                con.printerr("Can't get cursor coords! Make sure you have a cursor active in DF.\n");
                 return CR_FAILURE;
             }
-            c->con.print("Cursor coords: (%d, %d, %d)\n",x,y,z);
+            con.print("Cursor coords: (%d, %d, %d)\n",x,y,z);
 
             DFHack::DFCoord cursor(x,y,z);
             MapExtras::MapCache map;
             coord_vec all_tiles = brush->points(map, cursor);
-            c->con.print("working...\n");
+            con.print("working...\n");
 
             for (coord_vec::iterator iter = all_tiles.begin(); iter != all_tiles.end(); ++iter)
             {
@@ -798,7 +800,7 @@ command_result df_tiletypes (Core * c, vector <string> & parameters)
                  || (filter.material > -1 && filter.material != tileMaterial(source))
                  || (filter.special > -1 && filter.special != tileSpecial(source))
                  || (filter.variant > -1 && filter.variant != tileVariant(source))
-		 || (filter.dig > -1 && (filter.dig != 0) != (des.bits.dig != tile_dig_designation::No))
+                 || (filter.dig > -1 && (filter.dig != 0) != (des.bits.dig != tile_dig_designation::No))
                 )
                 {
                     continue;
@@ -897,11 +899,11 @@ command_result df_tiletypes (Core * c, vector <string> & parameters)
 
             if (map.WriteAll())
             {
-                c->con.print("OK\n");
+                con.print("OK\n");
             }
             else
             {
-                c->con.printerr("Something failed horribly! RUN!\n");
+                con.printerr("Something failed horribly! RUN!\n");
             }
         }
     }

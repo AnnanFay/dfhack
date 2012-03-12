@@ -47,9 +47,8 @@ using namespace std;
 #include "modules/Gui.h"
 #include "modules/World.h"
 #include "modules/Graphic.h"
+#include "modules/Windows.h"
 using namespace DFHack;
-
-#include "SDL_events.h"
 
 #include "df/ui.h"
 #include "df/world.h"
@@ -63,7 +62,6 @@ using namespace DFHack;
 #include <stdlib.h>
 #include <fstream>
 #include "tinythread.h"
-#include <llex.h>
 
 using namespace tthread;
 using namespace df::enums;
@@ -104,7 +102,7 @@ void cheap_tokenise(string const& input, vector<string> &output)
     string *cur = NULL;
 
     for (size_t i = 0; i < input.size(); i++) {
-        char c = input[i];
+        unsigned char c = input[i];
         if (isspace(c)) {
             cur = NULL;
         } else {
@@ -155,20 +153,22 @@ void fHKthread(void * iodata)
         std::string stuff = core->getHotkeyCmd(); // waits on mutex!
         if(!stuff.empty())
         {
+            color_ostream_proxy out(core->getConsole());
+
             vector <string> args;
             cheap_tokenise(stuff, args);
             if (args.empty()) {
-                core->con.printerr("Empty hotkey command.\n");
+                out.printerr("Empty hotkey command.\n");
                 continue;
             }
-            
+
             string first = args[0];
             args.erase(args.begin());
-            command_result cr = plug_mgr->InvokeCommand(first, args, false);
+            command_result cr = plug_mgr->InvokeCommand(out, first, args, false);
 
             if(cr == CR_WOULD_BREAK)
             {
-                core->con.printerr("It isn't possible to run an interactive command outside the console.\n");
+                out.printerr("It isn't possible to run an interactive command outside the console.\n");
             }
         }
     }
@@ -191,7 +191,7 @@ struct sortable
 
 static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clueless_counter, const string &command)
 {
-    Console & con = core->con;
+    Console & con = core->getConsole();
     
     if (!command.empty())
     {
@@ -229,7 +229,6 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
                           "  die                   - Force DF to close immediately\n"
                           "  keybinding            - Modify bindings of commands to keys\n"
                           "Plugin management (useful for developers):\n"
-                          //"  belongs COMMAND       - Tell which plugin a command belongs to.\n"
                           "  plug [PLUGIN|v]       - List plugin state and description.\n"
                           "  load PLUGIN|all       - Load a plugin by name or load all possible plugins.\n"
                           "  unload PLUGIN|all     - Unload a plugin or all loaded plugins.\n"
@@ -372,7 +371,6 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
                 "  fpause                - Force DF to pause.\n"
                 "  die                   - Force DF to close immediately\n"
                 "  keybinding            - Modify bindings of commands to keys\n"
-                "  belongs COMMAND       - Tell which plugin a command belongs to.\n"
                 "  plug [PLUGIN|v]       - List plugin state and detailed description.\n"
                 "  load PLUGIN|all       - Load a plugin by name or load all possible plugins.\n"
                 "  unload PLUGIN|all     - Unload a plugin or all loaded plugins.\n"
@@ -470,28 +468,11 @@ static void runInteractiveCommand(Core *core, PluginManager *plug_mgr, int &clue
         }
         else
         {
-            vector <string> parts;
-            cheap_tokenise(command,parts);
-            if(parts.size() == 0)
+            command_result res = plug_mgr->InvokeCommand(con, first, parts);
+            if(res == CR_NOT_IMPLEMENTED)
             {
-                clueless_counter++;
-            }
-            else
-            {
-                string first = parts[0];
-                parts.erase(parts.begin());
-                command_result res = plug_mgr->InvokeCommand(first, parts);
-                if(res == CR_NOT_IMPLEMENTED)
-                {
-                    con.printerr("%s is not a recognized command.\n", first.c_str());
-                    clueless_counter ++;
-                }
-                /*
-                else if(res == CR_FAILURE)
-                {
-                    con.printerr("ERROR!\n");
-                }
-                */
+                con.printerr("%s is not a recognized command.\n", first.c_str());
+                clueless_counter ++;
             }
         }
     }
@@ -522,7 +503,7 @@ void fIOthread(void * iodata)
     CommandHistory main_history;
     main_history.load("dfhack.history");
 
-    Console & con = core->con;
+    Console & con = core->getConsole();
     if(plug_mgr == 0 || core == 0)
     {
         con.printerr("Something horrible happened in Core's constructor...\n");
@@ -588,6 +569,7 @@ Core::Core()
     misc_data_mutex=0;
     last_world_data_ptr = NULL;
     top_viewscreen = NULL;
+    screen_window = NULL;
 };
 
 void Core::fatal (std::string output, bool deactivate)
@@ -652,7 +634,6 @@ bool Core::Init()
 
     cerr << "Initializing Console.\n";
     // init the console.
-    Gui * g = getGui();
     bool is_text_mode = false;
     if(init && init->display.flag.is_set(init_display_flags::TEXT))
     {
@@ -694,6 +675,8 @@ bool Core::Init()
     HotkeyMutex = new mutex();
     HotkeyCond = new condition_variable();
     thread * HK = new thread(fHKthread, (void *) temp);
+    screen_window = new Windows::top_level_window();
+    screen_window->addChild(new Windows::dfhack_dummy(5,10));
     started = true;
     cerr << "DFHack is running.\n";
     return true;
@@ -725,6 +708,16 @@ std::string Core::getHotkeyCmd( void )
     hotkey_cmd.clear();
     HotkeyMutex->unlock();
     return returner;
+}
+
+void Core::printerr(const char *format, ...)
+{
+    color_ostream_proxy proxy(getInstance().con);
+
+    va_list args;
+    va_start(args,format);
+    proxy.vprinterr(format,args);
+    va_end(args);
 }
 
 void Core::RegisterData( void *p, std::string key )
@@ -772,29 +765,11 @@ void Core::Resume()
     AccessMutex->unlock();
 }
 
-struct screen_tile
-{
-    unsigned char symbol;
-    unsigned char front;
-    unsigned char back;
-    unsigned char bright;
-};
-
-void screen_paint (int x, int y, uint8_t symbol)
-{
-    int tile = x * df::global::gps->dimy + y;
-    screen_tile *s = (screen_tile *) (df::global::gps->screen + tile*4);
-    s->symbol = symbol;
-}
-
 int Core::TileUpdate()
 {
-    screen_paint(0,0,'D');
-    screen_paint(1,0,'F');
-    screen_paint(2,0,'H');
-    screen_paint(3,0,'a');
-    screen_paint(4,0,'c');
-    screen_paint(5,0,'k');
+    if(!started)
+        return false;
+    screen_window->paint();
     return true;
 }
 
@@ -805,6 +780,8 @@ int Core::Update()
         Init();
     if(errorstate)
         return -1;
+
+    color_ostream_proxy out(con);
 
     // detect if the game was loaded or unloaded in the meantime
     void *new_wdata = NULL;
@@ -817,7 +794,7 @@ int Core::Update()
     
     if (new_wdata != last_world_data_ptr) {
         last_world_data_ptr = new_wdata;
-        plug_mgr->OnStateChange(new_wdata ? SC_GAME_LOADED : SC_GAME_UNLOADED);
+        plug_mgr->OnStateChange(out, new_wdata ? SC_GAME_LOADED : SC_GAME_UNLOADED);
     }
 
     // detect if the viewscreen changed
@@ -829,12 +806,14 @@ int Core::Update()
         if (screen != top_viewscreen) 
         {
             top_viewscreen = screen;
-            plug_mgr->OnStateChange(SC_VIEWSCREEN_CHANGED);
+            plug_mgr->OnStateChange(out, SC_VIEWSCREEN_CHANGED);
         }
     }
 
     // notify all the plugins that a game tick is finished
-    plug_mgr->OnUpdate();
+    plug_mgr->OnUpdate(out);
+
+    out << std::flush;
 
     // wake waiting tools
     // do not allow more tools to join in while we process stuff here
@@ -894,25 +873,58 @@ bool Core::ncurses_wgetch(int in, int & out)
     {
         int idx = in - KEY_F(1);
         // FIXME: copypasta, push into a method!
-        Gui * g = getGui();
-        if(df::global::ui && df::global::gview && g->df_menu_state)
+        if(df::global::ui && df::global::gview)
         {
-            df::viewscreen * ws = g->GetCurrentScreen();
-            // FIXME: USE ENUMS
-            if(((t_virtual *)ws)->getClassName() == "viewscreen_dwarfmodest" && *g->df_menu_state == 0x23)
-            {
-                out = in;
-                return true;
-            }
-            else
+            df::viewscreen * ws = Gui::GetCurrentScreen();
+            if (strict_virtual_cast<df::viewscreen_dwarfmodest>(ws) &&
+                df::global::ui->main.mode != ui_sidebar_mode::Hotkeys)
             {
                 setHotkeyCmd(df::global::ui->main.hotkeys[idx].name);
                 return false;
+            }
+            else
+            {
+                out = in;
+                return true;
             }
         }
     }
     out = in;
     return true;
+}
+
+int Core::UnicodeAwareSym(const SDL::KeyboardEvent& ke)
+{
+    // Assume keyboard layouts don't change the order of numbers:
+    if( '0' <= ke.ksym.sym && ke.ksym.sym <= '9') return ke.ksym.sym;
+
+    int unicode = ke.ksym.unicode;
+
+    // convert Ctrl characters to their 0x40-0x5F counterparts:
+    if (unicode < ' ')
+    {        
+        unicode += 'A' - 1;
+    }
+
+    // convert A-Z to their a-z counterparts:
+    if('A' < unicode && unicode < 'Z')
+    {
+        unicode += 'a' - 'A';
+    }    
+
+    // convert various other punctuation marks:
+    if('\"' == unicode) unicode = '\'';
+    if('+' == unicode) unicode = '=';
+    if(':' == unicode) unicode = ';';
+    if('<' == unicode) unicode = ',';
+    if('>' == unicode) unicode = '.';
+    if('?' == unicode) unicode = '/';
+    if('{' == unicode) unicode = '[';
+    if('|' == unicode) unicode = '\\';
+    if('}' == unicode) unicode = ']';
+    if('~' == unicode) unicode = '`';
+
+    return unicode;
 }
 
 //MEMO: return false if event is consumed
@@ -935,7 +947,18 @@ int Core::SDL_Event(SDL::Event* ev)
             if (ke->ksym.mod & SDL::KMOD_CTRL) mod |= 2;
             if (ke->ksym.mod & SDL::KMOD_ALT) mod |= 4;
 
-            SelectHotkey(ke->ksym.sym, mod);
+            // Use unicode so Windows gives the correct value for the
+            // user's Input Language
+            if((ke->ksym.unicode & 0xff80) == 0)
+            {
+                int key = UnicodeAwareSym(*ke);
+                SelectHotkey(key, mod);
+            }
+            else
+            {
+                // Pretend non-ascii characters don't happen:
+                SelectHotkey(ke->ksym.sym, mod);
+            }
         }
         else if(ke->state == SDL::BTN_RELEASED)
         {
@@ -1023,7 +1046,7 @@ static bool parseKeySpec(std::string keyspec, int *psym, int *pmod)
         *psym = SDL::K_F1 + (keyspec[1]-'1');
         return true;
     } else
-        return false;    
+        return false;
 }
 
 bool Core::ClearKeyBindings(std::string keyspec)
@@ -1140,7 +1163,6 @@ TYPE * Core::get##TYPE() \
     return s_mods.p##TYPE;\
 }
 
-MODULE_GETTER(Gui);
 MODULE_GETTER(World);
 MODULE_GETTER(Materials);
 MODULE_GETTER(Notes);

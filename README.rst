@@ -27,7 +27,7 @@ Compatibility
 DFHack works on Windows XP, Vista, 7 or any modern Linux distribution.
 OSX is not supported due to lack of developers with a Mac.
 
-Currently, only version 0.31.25 is supported. If you need DFHack
+Currently, only version 0.34.05 is supported. If you need DFHack
 for older versions, look for older releases.
 
 On Windows, you have to use the SDL version of DF.
@@ -242,6 +242,19 @@ Makes your minions move at ludicrous speeds.
  * Activate with 'fastdwarf 1'
  * Deactivate with 'fastdwarf 0'
 
+feature
+=======
+Enables management of map features.
+
+* Discovering a magma feature (magma pool, volcano, magma sea, or curious underground structure) permits magma workshops and furnaces to be built.
+* Discovering a cavern layer causes plants (trees, shrubs, and grass) from that cavern to grow within your fortress.
+
+Options
+-------
+:list:         Lists all map features in your current embark by index.
+:show X:       Marks the selected map feature as discovered.
+:hide X:       Marks the selected map feature as undiscovered.
+
 filltraffic
 ===========
 Set traffic designations using flood-fill starting at the cursor.
@@ -441,6 +454,8 @@ reveal
 ======
 This reveals the map. By default, HFS will remain hidden so that the demons don't spawn. You can use 'reveal hell' to reveal everything. With hell revealed, you won't be able to unpause until you hide the map again. If you really want to unpause with hell revealed, use 'reveal demons'.
 
+Reveal also works in adventure mode, but any of its effects are negated once you move. When you use it this way, you don't need to run 'unreveal'.
+
 unreveal
 ========
 Reverts the effects of 'reveal'.
@@ -452,6 +467,21 @@ Switches between 'reveal' and 'unreveal'.
 revflood
 ========
 This command will hide the whole map and then reveal all the tiles that have a path to the in-game cursor.
+
+revforget
+=========
+When you use reveal, it saves information about what was/wasn't visible before revealing everything. Unreveal uses this information to hide things again. This command throws away the information. For example, use in cases where you abandoned with the fort revealed and no longer want the data.
+
+lair
+====
+This command allows you to mark the map as 'monster lair', preventing item scatter on abandon. When invoked as 'lair reset', it does the opposite.
+
+Unlike reveal, this command doesn't save the information about tiles - you won't be able to restore state of real monster lairs using 'lair reset'.
+
+Options
+-------
+:lair: Mark the map as monster lair
+:lair reset: Mark the map as ordinary (not lair)
 
 seedwatch
 =========
@@ -488,6 +518,14 @@ You can paint tiles by their properties - shape, general material and a few othe
 You can also paint only over tiles that match a set of properties (filter)
 
 For more details, see the 'help' command while using this.
+
+tweak
+=====
+Contains various tweaks for minor bugs (currently just one).
+
+Options
+-------
+:tweak clear-missing: Remove the missing status from the selected unit. This allows engraving slabs for ghostly, but not yet found, creatures.
 
 tubefill
 ========

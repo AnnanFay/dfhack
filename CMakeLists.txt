@@ -27,10 +27,10 @@ endif()
 # set up versioning.
 set(DF_VERSION_MAJOR "0")
 set(DF_VERSION_MINOR "34")
-set(DF_VERSION_PATCH "03")
+set(DF_VERSION_PATCH "05")
 set(DF_VERSION "${DF_VERSION_MAJOR}.${DF_VERSION_MINOR}.${DF_VERSION_PATCH}")
 
-set(DFHACK_RELEASE "1-dev0")
+set(DFHACK_RELEASE "1d")
 
 set(DFHACK_VERSION "${DF_VERSION_MAJOR}.${DF_VERSION_MINOR}.${DF_VERSION_PATCH}-r${DFHACK_RELEASE}")
 add_definitions(-DDFHACK_VERSION="${DFHACK_VERSION}")
@@ -78,12 +78,27 @@ IF(UNIX)
   SET(CMAKE_C_FLAGS "-fvisibility=hidden -m32 -march=i686 -mtune=generic")
 ENDIF()
 
+# find and make available libz
+if(NOT UNIX)
+    SET(ZLIB_INCLUDE_DIRS ${dfhack_SOURCE_DIR}/library/depends/zlib/include/)
+    SET(ZLIB_LIBRARIES ${dfhack_SOURCE_DIR}/library/depends/zlib/lib/zlib.lib)
+else()
+    find_package(ZLIB REQUIRED)
+endif()
+include_directories(${ZLIB_INCLUDE_DIRS})
+
 #add depends to include path
 INCLUDE_DIRECTORIES ( library/depends )
+INCLUDE_DIRECTORIES ( library/depends/protobuf/ )
 
-# build the static lua for dfusion
-INCLUDE_DIRECTORIES ( lua/include )
-add_subdirectory (lua)
+# use shared libraries for protobuf
+ADD_DEFINITIONS(-DPROTOBUF_USE_DLLS)
+
+IF(!UNIX)
+    # build the static lua for dfusion, win32 only
+    INCLUDE_DIRECTORIES ( lua/include )
+    add_subdirectory (lua)
+ENDIF()
 
 # build the lib itself
 IF(BUILD_LIBRARY)

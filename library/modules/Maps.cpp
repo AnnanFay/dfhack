@@ -47,7 +47,6 @@ using namespace std;
 #include "df/feature_init.h"
 
 using namespace DFHack;
-using namespace DFHack::Simple;
 using namespace df::enums;
 using df::global::world;
 
@@ -201,7 +200,6 @@ bool Maps::WriteDirtyBit(uint32_t x, uint32_t y, uint32_t z, bool dirtybit)
     }
     return false;
 }
-/*
 /*
  * Block flags
  */

@@ -66,7 +66,6 @@ using namespace std;
 #include "df/general_ref.h"
 
 using namespace DFHack;
-using namespace DFHack::Simple;
 using namespace df::enums;
 using df::global::world;
 
@@ -383,7 +382,7 @@ bool ItemTypeInfo::matches(const df::job_item &item, MaterialInfo *mat)
     if ((item_ok1.whole & ~item_mask1.whole) ||
         (item_ok2.whole & ~item_mask2.whole) ||
         (item_ok3.whole & ~item_mask3.whole))
-        Core::getInstance().con.printerr("ItemTypeInfo.matches inconsistent\n");
+        Core::printerr("ItemTypeInfo.matches inconsistent\n");
 
 #undef OK
 #undef RQ
