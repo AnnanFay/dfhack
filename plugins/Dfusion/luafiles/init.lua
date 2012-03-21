@@ -36,38 +36,49 @@ function mainmenu(t1)
 		q=tonumber(q)
 		if q~=nil then
 			if q>=1 and q<=#t1 then
-				dofile("dfusion/"..t1[q][1].."/plugin.lua")
-				
+				if t1[q][3]==nil then
+					dofile("dfusion/"..t1[q][1].."/plugin.lua")
+				else
+					t1[q][3]()
+				end
 			end
 		end
 	end
 end
+function RunSaved() 
+	print("Locating saves...")
+	local str=df.world.cur_savegame.save_dir
+	print("Current region:"..str)
+	str="data/save/"..str.."/dfusion/init.lua"
+	print("Trying to run:"..str)
+	dofile_silent(str)
+end
 dofile("dfusion/common.lua")
 dofile("dfusion/utils.lua")
-types=nil
+dofile("dfusion/offsets_misc.lua")
+dofile("dfusion/editor.lua")
 dofile("dfusion/xml_struct.lua")
 unlockDF()
 plugins={}
 table.insert(plugins,{"simple_embark","A simple embark dwarf count editor"})
-table.insert(plugins,{"items","A collection of item hacking tools"})
-table.insert(plugins,{"offsets","Find all offsets"})
-table.insert(plugins,{"friendship","Multi race fort enabler"})
-table.insert(plugins,{"friendship_civ","Multi civ fort enabler"})
-table.insert(plugins,{"embark","Multi race embark"})
-table.insert(plugins,{"adv_tools","some tools for (mainly) advneturer hacking"})
 table.insert(plugins,{"tools","some misc tools"})
+table.insert(plugins,{"embark","Multi race embark"})
+table.insert(plugins,{"friendship","Multi race fort enabler"})
+--[=[table.insert(plugins,{"items","A collection of item hacking tools"})
+table.insert(plugins,{"offsets","Find all offsets"})
+
+table.insert(plugins,{"friendship_civ","Multi civ fort enabler"})
+table.insert(plugins,{"adv_tools","some tools for (mainly) advneturer hacking"})
+
 table.insert(plugins,{"triggers","a function calling plug (discontinued...)"})
 table.insert(plugins,{"migrants","multi race imigrations"})
-table.insert(plugins,{"onfunction","run lua on some df function"})
+table.insert(plugins,{"onfunction","run lua on some df function"})--]=]
+table.insert(plugins,{"editor","edit internals of df",EditDF})
+table.insert(plugins,{"saves","run current worlds's init.lua",RunSaved})
 loadall(plugins)
 dofile_silent("dfusion/initcustom.lua")
 
---[=[print("Locating saves...")
-local str=engine.peekstr(0x1447A40+offsets.base())
-print("Current region:"..str)
-str="data/save/"..str.."/dfusion/init.lua"
-dofile_silent(str)
---]=]
+
 if not INIT then
 mainmenu(plugins)
 end

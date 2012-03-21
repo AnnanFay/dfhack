@@ -6,6 +6,12 @@ BYTE=3
 QWORD=4
 DOUBLE=5
 FLOAT=6
+
+getline=function (inp)
+return Console.lineedit(inp or "")
+end
+io.stdin=nil
+
 function printd(...)
 	if DEBUG then
 		print(...)
@@ -243,7 +249,8 @@ function it_menu:display()
 	local ans
 	repeat
 		local r
-		r=io.stdin:read()
+		r=getline("")
+		if r==nil then return end
 		if r=='q' then return end
 		ans=tonumber(r)
 		
@@ -359,33 +366,19 @@ function findVectors()
 end
 
 function GetRaceToken(p) --actually gets token...
-	print(string.format("%x vs %x",offsets.getEx('CreatureGloss'),VersionInfo.getGroup("Materials"):getAddress("creature_type_vector")))
-	--local vec=engine.peek(offsets.getEx('CreatureGloss'),ptr_vector)
-	local vec=engine.peek(VersionInfo.getGroup("Materials"):getAddress("creature_type_vector"),ptr_vector)
-	--print("Vector ok")
-	local off=vec:getval(p)
-	--print("Offset:"..off)
-	local crgloss=engine.peek(off,ptr_CrGloss)
-	--print("Peek ok")
-	return crgloss.token:getval()
+	local vec=df.world.raws.creatures.all
+	return vec[p]:deref().creature_id
 end
 function BuildNameTable()
 	local rtbl={}
-	local vec=engine.peek(offsets.getEx('CreatureGloss'),ptr_vector)
+	local vec=df.world.raws.creatures.all
 	--print(string.format("Vector start:%x",vec.st))
 	--print(string.format("Vector end:%x",vec.en))
-	--local i=0
-	for p=0,vec:size()-1 do
-		local off=vec:getval(p)
-		--print("First member:"..off)
-		local name=engine.peek(off,ptt_dfstring)
-		--print("Loading:"..p.."="..name:getval())
-		rtbl[name:getval()]=p
-		--i=i+1
-		--if i>100 then
-		--	io.stdin:read()
-		--	i=0
-		--end
+	--print("Creature count:"..vec.size)
+	for k,v in iter(vec) do
+		local name=v:deref().creature_id
+		--print(k.." "..tostring(name))
+		rtbl[name]=k		
 	end
 	return rtbl;
 end
@@ -474,7 +467,14 @@ function ParseNames(path)
 	end
 	return ret
 end
-
+function getSelectedUnit()
+	local unit_indx=df.ui_selected_unit
+	if unit_indx<df.world.units.other[0].size then
+		return df.world.units.other[0][unit_indx]:deref()
+	else
+		return nil
+	end
+end
 function getxyz() -- this will return pointers x,y and z coordinates.
 	local off=VersionInfo.getGroup("Position"):getAddress("cursor_xyz") -- lets find where in memory its being held
 	-- now lets read them (they are double words (or unsigned longs or 4 bits each) and go in sucesion
@@ -511,6 +511,14 @@ function Allocate(size)
 	curptr=curptr+size
 	engine.poked(ptr,curptr)
 	return curptr-size+ptr
+end
+function initType(object,...)
+	local m=getmetatable(object)
+	if m~=nil and m.__setup~=nil then
+		m.__setup(object,...)
+	else
+		error("This object does not have __setup function")
+	end
 end
 dofile("dfusion/patterns.lua")
 dofile("dfusion/patterns2.lua")

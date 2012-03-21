@@ -24,7 +24,6 @@ distribution.
 
 #include "Internal.h"
 #include "Export.h"
-#include "Core.h"
 #include "MiscUtils.h"
 
 #ifndef LINUX_BUILD
@@ -36,6 +35,8 @@ distribution.
 
 #include <ctype.h>
 #include <stdarg.h>
+
+#include <sstream>
 
 std::string stl_sprintf(const char *fmt, ...) {
     va_list lst;
@@ -81,6 +82,20 @@ bool split_string(std::vector<std::string> *out,
         out->push_back(str.substr(start));
 
     return out->size() > 1;
+}
+
+std::string join_strings(const std::string &separator, const std::vector<std::string> &items)
+{
+    std::stringstream ss;
+
+    for (size_t i = 0; i < items.size(); i++)
+    {
+        if (i)
+            ss << separator;
+        ss << items[i];
+    }
+
+    return ss.str();
 }
 
 std::string toUpper(const std::string &str)

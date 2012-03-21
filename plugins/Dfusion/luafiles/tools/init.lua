@@ -1,14 +1,17 @@
 tools={}
 tools.menu=MakeMenu()
 function tools.setrace()
-	RaceTable=RaceTable or BuildNameTable() --slow.If loaded don't load again
-	print("Your current race is:"..GetRaceToken(engine.peekw(offsets.getEx('CurrentRace'))))
-	print("Type new race's token name in full caps:")
+	RaceTable=BuildNameTable()
+	print("Your current race is:"..GetRaceToken(df.ui.race_id))
+	print("Type new race's token name in full caps (q to quit):")
 	repeat
-	entry=io.stdin:read()
-	id=RaceTable[entry]
+		entry=getline()
+		if entry=="q" then
+			return
+		end
+		id=RaceTable[entry]
 	until id~=nil
-	engine.pokew(offsets.getEx('CurrentRace'),id)
+	df.ui.race_id=id
 end
 tools.menu:add("Set current race",tools.setrace)
 function tools.GiveSentience(names) --TODO make pattern...
@@ -17,7 +20,7 @@ function tools.GiveSentience(names) --TODO make pattern...
 		ids={}
 		print("Type race's  token name in full caps to give sentience to:")
 		repeat
-			entry=io.stdin:read()
+			entry=getline()
 			id=RaceTable[entry]
 		until id~=nil
 		table.insert(ids,id)
@@ -29,27 +32,21 @@ function tools.GiveSentience(names) --TODO make pattern...
 		end
 	end
 	for _,id in pairs(ids) do
-		local off=offsets.getEx('CreatureGloss')
-		local races=engine.peek(off,ptr_vector)
-		--print("Vector start:"..off)
-		
-		off=races:getval(id)
-		print(string.format("race location:%x",off))
-		local castes=engine.peek(off,ptr_CrGloss.castes)
-		print(string.format("Caste count:%i",castes:size()))
-		local flagPattern=ptt_dfflag.new(17)
-		for i =0,castes:size()-1 do
-			local offCaste=castes:getval(i)
-			print("Caste name:"..engine.peek(offCaste,ptr_CrCaste.name):getval().."...")
-			local flagoffset=engine.peek(offCaste,ptr_CrCaste.flags_ptr)
-			local flags=engine.peek(flagoffset,flagPattern)
+		local races=df.world.raws.creatures.all
+
+		local castes=races[id]:deref().caste
+		print(string.format("Caste count:%i",castes.size))
+		for i =0,castes.size-1 do
+			
+			print("Caste name:"..castes[i]:deref().caste_id.."...")
+			
+			local flags=castes[i]:deref().flags
 			--print(string.format("%x",flagoffset))
-			if flags:get(57) then
+			if flags.CAN_SPEAK then
 				print("\tis sentient.")
 			else
 				print("\tnon sentient. Allocating IQ...")
-				flags:set(57,1)
-				engine.poke(flagoffset,flagPattern,flags)
+				flags.CAN_SPEAK=true
 			end
 		end
 	end
@@ -104,7 +101,7 @@ function tools.getCreatureId(vector)
 	end
 	print("=====================================")
 	print("type in name or number:")
-	r=io.stdin:read()
+	r=getline()
 	if tonumber(r) ==nil then
 		indx=rnames[r]
 		if indx==nil then return end
@@ -122,7 +119,7 @@ function tools.change_adv()
 	tval=vector:getval(0)
 	vector:setval(0,vector:getval(indx))
 	vector:setval(indx,tval)
-	r=io.stdin:read()
+	r=getline()
 	if r=='q' then
 		return
 	end
@@ -150,7 +147,7 @@ function tools.MakeFollow()
 	lfollow=engine.peek(vector:getval(indx)+ptr_Creature.followID.off,DWORD)
 	if lfollow ~=0xFFFFFFFF then
 		print("Already following, unfollow? y/N")
-		r=io.stdin:read()
+		r=getline()
 		if r== "y" then
 			engine.poke(vector:getval(indx)+ptr_Creature.followID.off,DWORD,0)
 		end
@@ -159,16 +156,6 @@ function tools.MakeFollow()
 	end
 end
 tools.menu:add("Make creature follow",tools.MakeFollow)
-function tools.runscript(files)
-	if files==nil then
-	files={}
-	table.insert(files,io.stdin:read())
-	end
-	for _,v in pairs(files) do
-		print("Running script:"..v)
-		ParseScript(v)
-	end
-end
 function tools.getsite(names)
 	if words==nil then --do once its slow.
 		words,rwords=BuildWordTables()
@@ -178,7 +165,7 @@ function tools.getsite(names)
 	print("Type words that are in the site name, FULLCAPS, no modifiers (lovely->LOVE), q to quit:")
 	names={}
 	repeat
-	w=io.stdin:read();
+	w=getline();
 	
 	if rwords[w]~=nil then
 		table.insert(names,w)
@@ -243,14 +230,14 @@ function tools.getsite(names)
 			print(string.format("%d)%s off=%x type=%s\t flags=%x",i,r,off,snames[typ+1],flg))
 			
 			if i%100==99 then
-				r=io.stdin:read()
+				r=getline()
 			end
 			
 		end
 	end
 	print("Type which to change (q cancels):")
 	repeat
-		r=io.stdin:read()
+		r=getline()
 		n=tonumber(r)
 		if(r=='q') then return end
 	until n~=nil
@@ -265,7 +252,7 @@ function tools.changesite(names)
 		print((k-1).."->"..v)
 	end
 	repeat
-		r=io.stdin:read()
+		r=getline()
 		n2=tonumber(r)
 		if(r=='q') then return end
 	until n2~=nil
@@ -273,6 +260,36 @@ function tools.changesite(names)
 	print(string.format("%x->%d",off,n2))
 	engine.poke(off,ptr_site.type,n2)
 end
+function tools.empregnate(unit)
+	if unit==nil then
+		unit=getSelectedUnit()
+	end
+	if unit==nil then
+		error("Failed to empregnate. Unit not selected/valide")
+	end
+	local arr1=unit.appearance.unk_51c
+	local arr2=unit.appearance.unk_51c
+	local created=false
+	if unit.relations.pregnancy_ptr:tonumber()==0 then
+		print("creating preg ptr.")
+		unit.relations.pregnancy_ptr:newref()
+		created=true
+	end
+	local tarr1=unit.relations.pregnancy_ptr:deref().anon_1
+	local tarr2=unit.relations.pregnancy_ptr:deref().anon_2
+	if created or tarr1.size~= arr1.size then
+		print("Setting up arr1")
+		initType(tarr1,arr1.size)
+	end
+	if created or tarr2.size~= arr2.size then
+		print("Setting up arr1")
+		initType(tarr2,arr2.size)
+	end
+	print("Setting preg timer.")
+	unit.relations.pregnancy_timer=10
+	unit.relations.pregnancy_mystery=1
+end
+tools.menu:add("Empregnate",tools.empregnate)
 function tools.changeflags(names)
 	myflag_pattern=ptt_dfflag.new(3*8)
 	off=tools.getsite(names)
@@ -297,7 +314,7 @@ function tools.changeflags(names)
 			end
 		end
 		print("Type number to flip, or 'q' to quit.")
-		q=io.stdin:read()
+		q=getline()
 		n2=tonumber(q)
 		if n2~=nil then
 			
@@ -338,86 +355,6 @@ function tools.mouseBlock()
 	ys=math.floor(ys/16)
 	print("Mouse block is:"..xs.." "..ys.." "..zs)
 end
-function tools.protectsite()
-	local mapoffset=offsets.getEx("WorldData")--0x131C128+offsets.base()
-	local x=engine.peek(mapoffset+24,DWORD)
-	local y=engine.peek(mapoffset+28,DWORD)
-	local z=engine.peek(mapoffset+32,DWORD)
-	--vec=engine.peek(mapoffset,ptr_vector)
-	
-	print("Blocks loaded:"..x.." "..y.." "..z)
-	print("Select type:")
-	print("1. All (SLOW)")
-	print("2. range (x0 x1 y0 y1 z0 z1)")
-	print("3. One block around pointer")
-	print("anything else- quit")
-	q=io.stdin:read()
-	n2=tonumber(q)
-	if n2==nil then return end
-	if n2>3 or n2<1 then return end
-	local xs,xe,ys,ye,zs,ze
-	if n2==1 then
-		xs=0
-		xe=x-1
-		ys=0
-		ye=y-1
-		zs=0
-		ze=z-1
-	elseif n2==2 then
-		print("enter x0:")
-		xs=tonumber(io.stdin:read())
-		print("enter x1:")
-		xe=tonumber(io.stdin:read())
-		print("enter y0:")
-		ys=tonumber(io.stdin:read())
-		print("enter y1:")
-		ye=tonumber(io.stdin:read())
-		print("enter z0:")
-		zs=tonumber(io.stdin:read())
-		print("enter z1:")
-		ze=tonumber(io.stdin:read())
-		function clamp(t,vmin,vmax)
-			if t> vmax then return vmax end
-			if t< vmin then return vmin end
-			return t
-		end
-		xs=clamp(xs,0,x-1)
-		ys=clamp(ys,0,y-1)
-		zs=clamp(zs,0,z-1)
-		xe=clamp(xe,xs,x-1)
-		ye=clamp(ye,ys,y-1)
-		ze=clamp(ze,zs,z-1)
-	else
-		xs,ys,zs=getxyz()
-		xs=math.floor(xs/16)
-		ys=math.floor(ys/16)
-		xe=xs
-		ye=ys
-		ze=zs
-	end
-	local xblocks=engine.peek(mapoffset,DWORD)
-	local flg=bit.lshift(1,14)
-	for xx=xs,xe do
-		local yblocks=engine.peek(xblocks+xx*4,DWORD)
-		for yy=ys,ye do
-			local zblocks=engine.peek(yblocks+yy*4,DWORD)
-			for zz=zs,ze do
-				
-				
-				
-				local myblock=engine.peek(zblocks+zz*4,DWORD)
-				if myblock~=0 then
-					for i=0,255 do
-						local ff=engine.peek(myblock+0x67c+i*4,DWORD)
-						ff=bit.bor(ff,flg) --set 14 flag to 1
-						engine.poke(myblock+0x67c+i*4,DWORD,ff)
-					end
-				end
-			end
-			print("Blocks done:"..xx.." "..yy)
-		end
-	end
-end
 function tools.fixwarp()
    local mapoffset=offsets.getEx("WorldData")--0x131C128+offsets.base()
    local x=engine.peek(mapoffset+24,DWORD)
@@ -431,7 +368,7 @@ function tools.fixwarp()
    print("2. range (x0 x1 y0 y1 z0 z1)")
    print("3. One block around pointer")
    print("anything else- quit")
-   q=io.stdin:read()
+   q=getline()
    n2=tonumber(q)
    if n2==nil then return end
    if n2>3 or n2<1 then return end
@@ -445,17 +382,17 @@ function tools.fixwarp()
       ze=z-1
    elseif n2==2 then
       print("enter x0:")
-      xs=tonumber(io.stdin:read())
+      xs=tonumber(getline())
       print("enter x1:")
-      xe=tonumber(io.stdin:read())
+      xe=tonumber(getline())
       print("enter y0:")
-      ys=tonumber(io.stdin:read())
+      ys=tonumber(getline())
       print("enter y1:")
-      ye=tonumber(io.stdin:read())
+      ye=tonumber(getline())
       print("enter z0:")
-      zs=tonumber(io.stdin:read())
+      zs=tonumber(getline())
       print("enter z1:")
-      ze=tonumber(io.stdin:read())
+      ze=tonumber(getline())
       function clamp(t,vmin,vmax)
          if t> vmax then return vmax end
          if t< vmin then return vmin end

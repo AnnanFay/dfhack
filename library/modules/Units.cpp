@@ -48,8 +48,13 @@ using namespace std;
 #include "df/world.h"
 #include "df/ui.h"
 #include "df/unit_inventory_item.h"
+#include "df/historical_entity.h"
+#include "df/historical_figure.h"
+#include "df/historical_figure_info.h"
+#include "df/assumed_identity.h"
 
 using namespace DFHack;
+using namespace df::enums;
 using df::global::world;
 using df::global::ui;
 
@@ -522,3 +527,64 @@ void Units::CopyNameTo(df::unit * creature, df::language_name * target)
     Translation::copyName(&creature->name, target);
 }
 
+df::language_name *Units::GetVisibleName(df::unit *unit)
+{
+    df::historical_figure *figure = df::historical_figure::find(unit->hist_figure_id);
+
+    if (figure)
+    {
+        // v0.34.01: added the vampire's assumed identity
+        if (figure->info && figure->info->reputation)
+        {
+            auto identity = df::assumed_identity::find(figure->info->reputation->cur_identity);
+
+            if (identity)
+            {
+                auto id_hfig = df::historical_figure::find(identity->histfig_id);
+
+                if (id_hfig)
+                    return &id_hfig->name;
+
+                return &identity->name;
+            }
+        }
+    }
+
+    return &unit->name;
+}
+
+bool DFHack::Units::isDead(df::unit *unit)
+{
+    return unit->flags1.bits.dead;
+}
+
+bool DFHack::Units::isAlive(df::unit *unit)
+{
+    return !unit->flags1.bits.dead &&
+           !unit->flags3.bits.ghostly &&
+           !unit->curse.add_tags1.bits.NOT_LIVING;
+}
+
+bool DFHack::Units::isSane(df::unit *unit)
+{
+    if (unit->flags1.bits.dead ||
+        unit->flags3.bits.ghostly ||
+        unit->curse.add_tags1.bits.OPPOSED_TO_LIFE ||
+        unit->curse.add_tags1.bits.CRAZED)
+        return false;
+
+    if (unit->flags1.bits.has_mood)
+    {
+        switch (unit->mood)
+        {
+        case mood_type::Melancholy:
+        case mood_type::Raving:
+        case mood_type::Berserk:
+            return false;
+        default:
+            break;
+        }
+    }
+
+    return true;
+}

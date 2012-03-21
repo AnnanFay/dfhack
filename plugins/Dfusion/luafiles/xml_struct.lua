@@ -1,39 +1,22 @@
---[=[
-	bld=buildinglist[1]
-	bld.x1=10
-	bld.flags.exists=true
-	boolval=bld.flags.justice
-	if boolval then
-		bld.mat_type=bld.mat_type+1
-	end
-	
-	type info:
-	
---]=]
+if types ~= nil then
+	return
+end
 dofile("dfusion/xml_types.lua")
-
---[=[sometype={	
-}
-sometype.x1={INT32_T,0}
-sometype.y1={INT32_T,4}
---...
-sometype.flags={"building_flags",7*4}
---...
-
-types.building=sometype
-]=]
 
 function parseTree(t)
 	for k,v in ipairs(t) do
 		if v.xarg~=nil and v.xarg["type-name"]~=nil and v.label=="ld:global-type" then
 			local name=v.xarg["type-name"];
 			if(types[name]==nil) then
-				--print("Parsing:"..name)
+				
 				--for kk,vv in pairs(v.xarg) do
 				--	print("\t"..kk.." "..tostring(vv))
 				--end
 				types[name]=makeType(v)
 				--print("found "..name.." or type:"..v.xarg.meta or v.xarg.base)
+			
+			else
+				types[name]=makeType(v,types[name])
 			end
 		end
 	end
@@ -63,6 +46,8 @@ function parseTreeGlobals(t)
 	return glob
 end
 function findAndParse(tname)
+	--if types[tname]==nil then types[tname]={} end
+	-- [=[
 	for k,v in ipairs(main_tree) do
 		local name=v.xarg["type-name"];
 		if v.xarg~=nil and v.xarg["type-name"]~=nil and v.label=="ld:global-type" then
@@ -72,11 +57,12 @@ function findAndParse(tname)
 			--for kk,vv in pairs(v.xarg) do
 			--	print("\t"..kk.." "..tostring(vv))
 			--end
-			types[name]=makeType(v)
+			types[name]=makeType(v,types[name])
 			end
 			--print("found "..name.." or type:"..v.xarg.meta or v.xarg.base)
 		end
 	end
+	--]=]
 end
 df={}
 df.types=rawget(df,"types") or {} --temporary measure for debug
@@ -129,9 +115,20 @@ for k,v in pairs(labels) do
 		end
 	end
 end--]=]
-function addressOf(var)
-	local addr=rawget(var,"ptr")
-	return addr
+function addressOf(var,key)
+	if key== nil then
+		local addr=rawget(var,"ptr")
+		return addr
+	else
+		local meta=getmetatable(var)
+		if meta== nil then
+			error("Failed to get address, no metatable")
+		end
+		if meta.__address == nil then
+			error("Failed to get address, no __address function")
+		end
+		return meta.__address(var,key)
+	end
 end
 function printGlobals()
 	print("Globals:")
@@ -149,6 +146,6 @@ function printFields(object)
 		error("Not an class_type or a class_object")
 	end
 	for k,v in pairs(tbl.types) do
-		print(k)
+		print(string.format("%s %x",k,v[2]))
 	end
 end
