@@ -40,11 +40,6 @@ if(BUILD_DFJSON)
     add_subdirectory (dfjson)
 endif()
 
-OPTION(BUILD_DGC "Build DGC." ON)
-if(BUILD_DGC)
-    add_subdirectory (dgc)
-endif()
-
 OPTION(BUILD_MAPEXPORT "Build map exporter." ON)
 if (BUILD_MAPEXPORT)
     add_subdirectory (mapexport)
