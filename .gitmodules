@@ -13,3 +13,6 @@
 [submodule "depends/clsocket"]
 	path = depends/clsocket
 	url = git://github.com/peterix/clsocket.git
+[submodule "plugins/dgc"]
+	path = plugins/dgc
+	url = git://github.com/AnnanFay/dgc.git
